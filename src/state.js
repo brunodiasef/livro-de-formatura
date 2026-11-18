@@ -1,5 +1,5 @@
 // Estado do livro, histórico (desfazer/refazer) e salvamento automático.
-import { instantiate, switchTemplate, getTemplate } from './templates.js';
+import { instantiate, switchTemplate, getTemplate, setCustomSource, TXT_NAME, TXT_BODY } from './templates.js';
 import { dbGet, dbPut } from './db.js';
 import { clone, uid, debounce, randSeed } from './util.js';
 
@@ -12,6 +12,8 @@ export const state = {
   zoom: null,         // null = ajustar à tela
   saved: true,
 };
+
+setCustomSource(() => state.book?.customTemplates || []);
 
 const listeners = new Set();
 export const on = (fn) => (listeners.add(fn), () => listeners.delete(fn));
@@ -140,6 +142,7 @@ export function findElement(id) {
 export function usedImageIds(book = state.book) {
   const ids = new Set();
   for (const p of book.pages) for (const s of p.slots) for (const e of s.elements) if (e.type === 'photo' && e.src) ids.add(e.src);
+  for (const t of book.customTemplates || []) for (const e of t.elements) if (e.type === 'photo' && e.src) ids.add(e.src);
   return ids;
 }
 
@@ -239,6 +242,41 @@ export function setLayout(page, layout) {
   page.layout = layout;
   state.sel = { pageId: page.id, slot: 0, elId: null };
   commit();
+}
+
+// Salva a metade/página como um modelo novo, reutilizável
+export function saveSlotAsTemplate(target, name, { keepPhotos = false, keepTexts = false } = {}) {
+  const page = target.page;
+  const elements = clone(target.slot.elements).map((e) => {
+    delete e.id; delete e.seed;
+    if (e.type === 'photo' && !keepPhotos) Object.assign(e, { src: null, zoom: 1, panX: 0, panY: 0 });
+    if (e.type === 'text' && !keepTexts) {
+      if (e.role === 'name') e.text = TXT_NAME;
+      if (e.role === 'body') e.text = TXT_BODY;
+    }
+    return e;
+  });
+  const tpl = {
+    id: 'c' + uid(),
+    name: name || 'Meu modelo',
+    size: page.layout === 'halves' ? 'half' : 'full',
+    bg: page.layout === 'full' ? page.bg : undefined,
+    elements,
+  };
+  (state.book.customTemplates ||= []).unshift(tpl);
+  target.slot.template = tpl.id;
+  commit();
+  return tpl;
+}
+
+export function deleteCustomTemplate(id) {
+  state.book.customTemplates = (state.book.customTemplates || []).filter((t) => t.id !== id);
+  commit();
+}
+
+export function renameCustomTemplate(id, name) {
+  const t = (state.book.customTemplates || []).find((x) => x.id === id);
+  if (t && name) { t.name = name; commit(); }
 }
 
 export function applyTemplate(target, tid) {

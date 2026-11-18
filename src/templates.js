@@ -9,8 +9,8 @@ export const NAME = { font: 'Cormorant Garamond', weight: 600, size: 19, color: 
 export const BODY = { font: 'Quicksand', weight: 400, size: 9.5, color: C.text, lineHeight: 1.6 };
 const LABEL = { font: 'Montserrat', weight: 600, size: 6.8, color: C.gold, tracking: 300, uppercase: true, lineHeight: 1.2 };
 
-const TXT_NAME = 'Nome do Aluno';
-const TXT_BODY = 'Três anos de dedicação, descobertas e amizades que levaremos para a vida. Escreva aqui a mensagem do aluno.';
+export const TXT_NAME = 'Nome do Aluno';
+export const TXT_BODY = 'Três anos de dedicação, descobertas e amizades que levaremos para a vida. Escreva aqui a mensagem do aluno.';
 
 export const T = (o) => ({
   type: 'text', text: '', font: 'Quicksand', weight: 400, italic: false, size: 10, color: C.text,
@@ -273,7 +273,21 @@ export const TEMPLATES = [
   },
 ];
 
-export const getTemplate = (id) => TEMPLATES.find((t) => t.id === id) || TEMPLATES[0];
+// ───────── modelos salvos pelo usuário (ficam dentro do projeto) ─────────
+let customSource = () => [];
+export function setCustomSource(fn) { customSource = fn; }
+
+function toTemplate(c) {
+  return {
+    id: c.id, name: c.name, size: c.size, style: 'Meu modelo', bg: c.bg, custom: true,
+    build: () => clone(c.elements),
+  };
+}
+export const customTemplates = () => (customSource() || []).map(toTemplate);
+export const allTemplates = () => [...customTemplates(), ...TEMPLATES];
+
+export const getTemplate = (id) =>
+  TEMPLATES.find((t) => t.id === id) || customTemplates().find((t) => t.id === id) || TEMPLATES[0];
 
 export function instantiate(id) {
   const t = getTemplate(id);

@@ -3,8 +3,9 @@ import {
   state, on, emit, commit, commitLater, getSel, select, spreadCount, spreadPages, pageIndex, targetSlot,
   addSpread, duplicateSpread, deleteSpread, moveSpread, moveSpreadTo,duplicatePage, deletePage, movePage, insertPageAfter,
   setLayout, applyTemplate, undo, redo, canUndo, canRedo, newPage,
+  saveSlotAsTemplate, deleteCustomTemplate, renameCustomTemplate,
 } from './state.js';
-import { TEMPLATES, getTemplate, T, P, D, BODY, instantiate } from './templates.js';
+import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
 import { renderPage, renderSheetCanvas, layoutText, photoDpi } from './render.js';
 import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom } from './editor.js';
 import { FONTS, fontWeights, fontHasItalic, WEIGHT_NAMES } from './fonts.js';
@@ -360,7 +361,7 @@ function selSig() {
   const s = getSel();
   if (!s) return 'none';
   const el = s.el;
-  return [s.page.id, s.slotIdx, s.page.layout, s.page.bg, s.page.divider, s.slot.template, el?.id, el?.frame, el?.fit, !!el?.src, el?.font, el?.border, el?.kind, state.panMode].join('|');
+  return [s.page.id, s.slotIdx, s.page.layout, s.page.bg, s.page.divider, s.slot.template, el?.id, el?.frame, el?.fit, !!el?.src, el?.font, el?.border, el?.kind, state.panMode, (state.book.customTemplates || []).map((t) => t.id + t.name).join(',')].join('|');
 }
 
 function needsRebuild() {
@@ -677,6 +678,7 @@ function renderPageProps(body) {
         btn('Trocar modelo', { icon: 'grid', cls: 'primary', onClick: () => { rightTab = 'templates'; renderRight(); } }),
         btn('Limpar fotos', { icon: 'trash', onClick: () => { s.slot.elements.forEach((e) => { if (e.type === 'photo') e.src = null; }); commit(); } }),
       ),
+      btn('Salvar como modelo', { icon: 'save', cls: 'block', onClick: openSaveTemplateDialog, title: 'Guarda este layout para usar em outras páginas' }),
       h('div', { class: 'actions' },
         btn('Texto', { icon: 'text', onClick: addText }),
         btn('Foto', { icon: 'image', onClick: addPhoto })),
@@ -732,10 +734,97 @@ function buildTemplateThumbs() {
   setTimeout(step, 30);
 }
 
+// miniatura de um modelo salvo pelo usuário (refeita só quando o modelo muda)
+const customThumbs = new Map();
+function customThumb(tp) {
+  const raw = (state.book.customTemplates || []).find((x) => x.id === tp.id);
+  const key = tp.id + '|' + JSON.stringify(raw);
+  let c = customThumbs.get(key);
+  if (!c) {
+    const half = tp.size === 'half';
+    const s = (half ? 1.15 : 0.82) * (window.devicePixelRatio || 1);
+    const page = { id: 'thumb-' + tp.id, layout: 'full', bg: tp.bg || 'aquarela', divider: false, slots: [instantiate(tp.id)] };
+    c = document.createElement('canvas');
+    c.width = Math.round(PAGE_W * s);
+    c.height = Math.round((half ? HALF_H : PAGE_H) * s);
+    const ctx = c.getContext('2d');
+    ctx.scale(s, s);
+    renderPage(ctx, page, 'left', { s, cache: false });
+    customThumbs.set(key, c);
+  }
+  return c;
+}
+
+export function openSaveTemplateDialog() {
+  const t = targetSlot();
+  if (!t) return;
+  const n = (state.book.customTemplates || []).length + 1;
+  const name = h('input', { value: `Meu modelo ${n}`, class: 'text-input' });
+  const keepTexts = h('input', { type: 'checkbox' });
+  const keepPhotos = h('input', { type: 'checkbox' });
+  const what = t.page.layout === 'halves' ? (t.slotIdx ? 'o aluno de baixo' : 'o aluno de cima') : 'a página inteira';
+  const dlg = modal('Salvar como modelo', h('div', { class: 'save-tpl' },
+    h('p', { class: 'muted' }, `Salva o layout atual (${what} da página ${t.pageIdx + 1}) como um modelo novo: posições, tamanhos, fontes, cores, molduras e enfeites. Ele aparece em "Meus modelos", na aba Modelos.`),
+    h('label', { class: 'field' }, h('span', { class: 'lbl' }, 'Nome do modelo'), name),
+    h('label', { class: 'check' }, keepTexts, h('span', {}, 'Manter o nome e a mensagem do aluno (senão ficam os textos de exemplo)')),
+    h('label', { class: 'check' }, keepPhotos, h('span', {}, 'Manter as fotos (senão os espaços de foto ficam vazios)')),
+  ), [
+    { label: 'Cancelar', onClick: (close) => close() },
+    { label: 'Salvar modelo', primary: true, icon: 'save', onClick: (close) => {
+      const tpl = saveSlotAsTemplate(t, name.value.trim(), { keepTexts: keepTexts.checked, keepPhotos: keepPhotos.checked });
+      close();
+      rightTab = 'templates';
+      renderRight();
+      rightEl.querySelector('.right-body').scrollTop = 0;
+      toast(`Modelo "${tpl.name}" salvo em Meus modelos.`, 'ok');
+    } },
+  ]);
+  setTimeout(() => { name.focus(); name.select(); }, 30);
+  name.addEventListener('keydown', (e) => { if (e.key === 'Enter') dlg.foot.querySelector('.btn.primary').click(); });
+}
+
+function renameTemplateDialog(tp) {
+  const name = h('input', { value: tp.name, class: 'text-input' });
+  const dlg = modal('Renomear modelo', h('label', { class: 'field' }, h('span', { class: 'lbl' }, 'Nome do modelo'), name), [
+    { label: 'Cancelar', onClick: (close) => close() },
+    { label: 'Salvar', primary: true, onClick: (close) => { renameCustomTemplate(tp.id, name.value.trim()); close(); } },
+  ]);
+  setTimeout(() => { name.focus(); name.select(); }, 30);
+  name.addEventListener('keydown', (e) => { if (e.key === 'Enter') dlg.foot.querySelector('.btn.primary').click(); });
+}
+
 function renderTemplates(body) {
   const t = targetSlot();
   const target = t ? `Página ${t.pageIdx + 1}${t.page.layout === 'halves' ? (t.slotIdx ? ' · aluno de baixo' : ' · aluno de cima') : ' · página inteira'}` : '—';
   body.append(h('div', { class: 'target' }, 'Aplicar em: ', h('b', {}, target), h('small', {}, 'Clique numa metade da página para mudar o destino. Fotos e textos já inseridos são mantidos.')));
+
+  // Meus modelos
+  const mine = customTemplates();
+  const myGrid = h('div', { class: 'tpl-grid' });
+  for (const tp of mine) {
+    const src = customThumb(tp);
+    const c = h('canvas');
+    c.width = src.width; c.height = src.height; c.getContext('2d').drawImage(src, 0, 0);
+    const current = t && t.slot.template === tp.id;
+    myGrid.append(h('div', {
+      class: 'tpl mine' + (tp.size === 'full' ? ' full' : '') + (current ? ' on' : ''), title: tp.name, role: 'button', tabindex: 0,
+      onClick: () => { const tt = targetSlot(); if (tt) applyTemplate(tt, tp.id); },
+    }, c,
+    h('span', { class: 'tpl-name' }, tp.name),
+    h('span', { class: 'tpl-tag' }, tp.size === 'full' ? 'Página inteira' : 'Meia página'),
+    h('span', { class: 'tpl-tools' },
+      miniBtn('text', 'Renomear', () => renameTemplateDialog(tp)),
+      miniBtn('trash', 'Excluir modelo', async () => {
+        if (await confirmBox('Excluir modelo', `Excluir o modelo "${tp.name}"? As páginas que já usam esse layout não mudam.`, 'Excluir', true)) deleteCustomTemplate(tp.id);
+      })),
+    ));
+  }
+  body.append(h('div', { class: 'tpl-section' },
+    h('h4', {}, 'Meus modelos', h('small', {}, mine.length ? 'modelos que você salvou' : 'monte uma página do seu jeito e salve para reutilizar')),
+    btn('Salvar a seleção atual como modelo', { icon: 'save', cls: 'block', onClick: openSaveTemplateDialog }),
+    mine.length ? myGrid : null,
+  ));
+
   for (const [size, title, sub] of [['half', 'Alunos · meia página', '2 por página · 4 por folha A4'], ['full', 'Página inteira', 'capa, turma, professores, homenagens…']]) {
     const grid = h('div', { class: 'tpl-grid' + (size === 'full' ? ' full' : '') });
     for (const tp of TEMPLATES.filter((x) => x.size === size)) {

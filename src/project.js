@@ -1,6 +1,6 @@
 // Salvar / abrir / novo projeto. O projeto também fica salvo automaticamente no navegador.
 import { state, emit, newBook, resetHistory, saveNow, usedImageIds } from './state.js';
-import { getImage, putBlob, clearAll, blobToDataURL } from './images.js';
+import { getImage, putBlob, clearAll, blobToDataURL, removeUnused } from './images.js';
 import { clearRenderCache } from './render.js';
 import { download } from './util.js';
 import { toast, confirmBox } from './ui-kit.js';
@@ -45,9 +45,11 @@ export async function openProjectFile(file) {
 
 export async function newProject() {
   if (!(await confirmBox('Novo projeto', 'Começar um livro novo? O projeto atual e as fotos dele serão apagados deste computador. Se quiser guardar, use antes "Salvar cópia do projeto".', 'Começar do zero', true))) return;
-  await clearAll();
+  const keepTemplates = state.book.customTemplates || []; // "Meus modelos" passam para o livro novo
   clearRenderCache();
   state.book = newBook();
+  state.book.customTemplates = keepTemplates;
+  await removeUnused(usedImageIds());
   state.spread = 0;
   state.sel = null;
   resetHistory();

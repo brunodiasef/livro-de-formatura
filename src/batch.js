@@ -1,6 +1,6 @@
 // "Alunos em lote": seleciona várias fotos de uma vez, confere nomes e textos e o app monta as páginas.
 import { state, commit, newPage, emit } from './state.js';
-import { TEMPLATES } from './templates.js';
+import { allTemplates } from './templates.js';
 import { importFile } from './images.js';
 import { layoutText } from './render.js';
 import { readDocxStudents } from './docx.js';
@@ -25,7 +25,7 @@ const norm = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().rep
 
 export function openBatchDialog() {
   let students = [];
-  const halfTemplates = TEMPLATES.filter((t) => t.size === 'half');
+  const halfTemplates = allTemplates().filter((t) => t.size === 'half');
   const opts = { top: 't01', bottom: 't02', useEmpty: true, sort: true };
 
   const list = h('div', { class: 'batch-list' });
