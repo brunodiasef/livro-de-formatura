@@ -13,6 +13,37 @@ export const state = {
   saved: true,
 };
 
+// Seleção de vários elementos (retângulo de seleção ou Shift+clique): lista de ids.
+// Qualquer nova seleção simples (state.sel = …) limpa a seleção múltipla.
+state.multi = [];
+let _sel = null;
+Object.defineProperty(state, 'sel', {
+  get: () => _sel,
+  set: (v) => { _sel = v; state.multi = []; },
+  enumerable: true,
+});
+
+export function setMulti(ids) {
+  ids = [...new Set(ids)].filter((id) => findElement(id));
+  if (ids.length === 0) { emit('select'); return; }
+  const first = findElement(ids[0]);
+  if (ids.length === 1) {
+    select({ pageId: first.page.id, slot: first.page.slots.indexOf(first.slot), elId: ids[0] });
+    return;
+  }
+  state.sel = { pageId: first.page.id, slot: first.page.slots.indexOf(first.slot), elId: null };
+  state.multi = ids;
+  state.panMode = false;
+  emit('select');
+}
+
+// elementos da seleção múltipla que ainda existem
+export function getMulti() {
+  if (!state.multi || state.multi.length < 2) return [];
+  return state.multi.map(findElement).filter(Boolean)
+    .map((f) => ({ ...f, slotIdx: f.page.slots.indexOf(f.slot), pageIdx: pageIndex(f.page.id) }));
+}
+
 setCustomSource(() => state.book?.customTemplates || []);
 
 const listeners = new Set();
@@ -103,10 +134,12 @@ export function getSel() {
 
 export function fixSelection() {
   if (state.spread >= spreadCount()) state.spread = spreadCount() - 1;
+  const multi = (state.multi || []).filter((id) => findElement(id));
   const s = getSel();
   if (!s) { state.sel = null; return; }
   if (state.sel.elId && !s.el) state.sel.elId = null;
   state.sel.slot = s.slotIdx;
+  if (multi.length >= 2) state.multi = multi;
 }
 
 export function select(sel) {

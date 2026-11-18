@@ -3,11 +3,11 @@ import {
   state, on, emit, commit, commitLater, getSel, select, spreadCount, spreadPages, pageIndex, targetSlot,
   addSpread, duplicateSpread, deleteSpread, moveSpread, moveSpreadTo,duplicatePage, deletePage, movePage, insertPageAfter,
   setLayout, applyTemplate, undo, redo, canUndo, canRedo, newPage,
-  saveSlotAsTemplate, deleteCustomTemplate, renameCustomTemplate,
+  saveSlotAsTemplate, deleteCustomTemplate, renameCustomTemplate, getMulti,
 } from './state.js';
 import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
 import { renderPage, renderSheetCanvas, layoutText, photoDpi } from './render.js';
-import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom } from './editor.js';
+import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected } from './editor.js';
 import { FONTS, fontWeights, fontHasItalic, WEIGHT_NAMES } from './fonts.js';
 import { BACKGROUNDS, FRAMES, DECOS, SWATCHES, PAGE_W, PAGE_H, HALF_H, DPI_MIN, DPI_GOOD } from './constants.js';
 import { h, uid, randSeed, debounce, clone } from './util.js';
@@ -40,7 +40,7 @@ export function initUI(root) {
     } else if (type === 'select') {
       refreshLeft();
       const s = getSel();
-      if (s?.el) rightTab = 'edit';
+      if (s?.el || state.multi?.length >= 2) rightTab = 'edit';
       renderRight();
     } else if (type === 'live') {
       syncInputs();
@@ -361,7 +361,7 @@ function selSig() {
   const s = getSel();
   if (!s) return 'none';
   const el = s.el;
-  return [s.page.id, s.slotIdx, s.page.layout, s.page.bg, s.page.divider, s.slot.template, el?.id, el?.frame, el?.fit, !!el?.src, el?.font, el?.border, el?.kind, state.panMode, (state.book.customTemplates || []).map((t) => t.id + t.name).join(',')].join('|');
+  return [s.page.id, s.slotIdx, s.page.layout, s.page.bg, s.page.divider, s.slot.template, el?.id, el?.frame, el?.fit, !!el?.src, el?.font, el?.border, el?.kind, state.panMode, (state.multi || []).join(','), (state.book.customTemplates || []).map((t) => t.id + t.name).join(',')].join('|');
 }
 
 function needsRebuild() {
@@ -396,7 +396,8 @@ function renderRight() {
   if (rightTab === 'templates') {
     renderTemplates(body);
     body.scrollTop = templatesScroll;
-  } else if (s?.el?.type === 'text') renderTextProps(body, s);
+  } else if (getMulti().length) renderMultiProps(body);
+  else if (s?.el?.type === 'text') renderTextProps(body, s);
   else if (s?.el?.type === 'photo') renderPhotoProps(body, s);
   else if (s?.el?.type === 'deco') renderDecoProps(body, s);
   else renderPageProps(body);
@@ -630,6 +631,66 @@ function renderPhotoProps(body, s) {
     ) : null,
     geometry(el),
     elementActions(),
+  );
+}
+
+// ───── vários itens selecionados ─────
+function renderMultiProps(body) {
+  const multi = getMulti();
+  const texts = multi.filter((f) => f.el.type === 'text').map((f) => f.el);
+  const count = (t) => multi.filter((f) => f.el.type === t).length;
+  const parts = [[count('text'), 'texto(s)'], [count('photo'), 'foto(s)'], [count('deco'), 'enfeite(s)']].filter(([n]) => n).map(([n, l]) => `${n} ${l}`);
+  const alignBtn = (mode, ic, title) => h('button', { class: 'abtn', title, onClick: () => alignSelected(mode) }, icon(ic));
+
+  // objeto "procurador": mudar aqui muda todos os textos selecionados
+  const allTexts = {
+    get font() { return texts[0]?.font; },
+    set font(v) {
+      for (const el of texts) {
+        el.font = v;
+        const ws = fontWeights(v);
+        if (!ws.includes(el.weight)) el.weight = ws.reduce((a, b) => (Math.abs(b - el.weight) < Math.abs(a - el.weight) ? b : a), ws[0]);
+        if (!fontHasItalic(v)) el.italic = false;
+      }
+    },
+    get color() { return texts[0]?.color; },
+    set color(v) { for (const el of texts) el.color = v; },
+  };
+  const bump = (d) => { for (const el of texts) el.size = Math.max(4, Math.round((el.size + d) * 10) / 10); commit(); };
+
+  body.append(
+    header(`${multi.length} itens selecionados`, parts.join(' · ')),
+    section('Alinhar entre si',
+      h('div', { class: 'align-row' },
+        alignBtn('left', 'alignL', 'Alinhar à esquerda'),
+        alignBtn('center', 'alignC', 'Centralizar na horizontal'),
+        alignBtn('right', 'alignR', 'Alinhar à direita'),
+        h('span', { class: 'sep' }),
+        alignBtn('top', 'vTop', 'Alinhar no topo'),
+        alignBtn('middle', 'vMid', 'Centralizar na vertical'),
+        alignBtn('bottom', 'vBot', 'Alinhar na base'),
+      ),
+      multi.length >= 3 ? h('div', { class: 'actions' },
+        btn('Distribuir na horizontal', { onClick: () => alignSelected('dist-h'), title: 'Deixa o mesmo espaço entre os itens, da esquerda para a direita' }),
+        btn('Distribuir na vertical', { onClick: () => alignSelected('dist-v'), title: 'Deixa o mesmo espaço entre os itens, de cima para baixo' }),
+      ) : null,
+    ),
+    texts.length ? section(`Textos selecionados (${texts.length})`,
+      field('Fonte', selectInput(allTexts, 'font',
+        ['Clássicas', 'Manuscritas', 'Modernas'].map((g) => ({
+          group: g, items: FONTS.filter((f) => f.group === g).map((f) => [f.family, f.family, `font-family:"${f.family}";font-size:15px`]),
+        })))),
+      h('div', { class: 'actions' },
+        btn('Diminuir letra', { icon: 'minus', onClick: () => bump(-0.5) }),
+        btn('Aumentar letra', { icon: 'plus', onClick: () => bump(0.5) })),
+      colorInput(allTexts, 'color'),
+    ) : null,
+    section(null,
+      h('p', { class: 'hint' }, 'Arraste qualquer item selecionado para mover todos juntos. Setas do teclado também movem o grupo. Shift + clique tira ou põe um item na seleção.'),
+      h('div', { class: 'actions' },
+        btn('Duplicar', { icon: 'copy', onClick: duplicateSelected, title: 'Ctrl+D' }),
+        btn('Excluir', { icon: 'trash', cls: 'danger', onClick: deleteSelected, title: 'Delete' }),
+      )),
   );
 }
 

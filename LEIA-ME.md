@@ -76,7 +76,12 @@ Ao trocar de modelo, a foto e os textos que você já inseriu continuam no lugar
 | Zoom da tela | Ctrl + roda do mouse |
 | Folha anterior / próxima | PageUp / PageDown |
 | Girar de 15 em 15° ou manter proporção | Shift (com a alça) |
-| Mover sem encaixar nas guias | Ctrl (ao arrastar) |
+| Selecionar vários (como no Canva) | Arrastar um retângulo a partir de uma área vazia |
+| Pôr ou tirar um item da seleção | Shift + clique |
+| Selecionar tudo da folha | Ctrl+A |
+| Duplicar arrastando (como no Word) | Ctrl + arrastar |
+| Mover só na horizontal ou vertical | Shift + arrastar (Ctrl+Shift duplica travado) |
+| Mover sem encaixar nas guias | Alt (ao arrastar) |
 
 ## Estrutura do código
 

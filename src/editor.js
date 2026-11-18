@@ -1,6 +1,7 @@
 // Área central: mostra a folha A4 aberta e trata cliques, arrastes, encaixes e fotos soltas.
 import {
   state, on, emit, commit, getSel, select, spreadPages, pageIndex, findElement, undo, redo, commitLater, spreadCount,
+  setMulti, getMulti,
 } from './state.js';
 import { renderPage, slotOffset, photoDpi, imageRect } from './render.js';
 import { getImage, importFile } from './images.js';
@@ -252,6 +253,45 @@ function renderOverlay() {
     }
   }
 
+  // seleção múltipla: caixa de cada elemento + caixa do grupo
+  const multi = getMulti().filter((f) => spreadPages().includes(f.page));
+  if (multi.length) {
+    for (const f of multi) {
+      const { ox, oy } = elWorld(f.page, f.slotIdx, f.el);
+      drawBox(g, f.el, ox, oy, 'rgba(46,110,230,1)');
+    }
+    const b = groupBounds(multi);
+    g.save();
+    g.strokeStyle = 'rgba(46,110,230,0.8)'; g.lineWidth = 1; g.setLineDash([5, 4]);
+    g.strokeRect(Z(b.x0) - 4, Z(b.y0) - 4, Z(b.x1 - b.x0) + 8, Z(b.y1 - b.y0) + 8);
+    g.setLineDash([]);
+    const label = `${multi.length} selecionados`;
+    g.font = '600 11px system-ui';
+    const tw = g.measureText(label).width + 14;
+    g.fillStyle = 'rgba(46,110,230,0.95)';
+    g.beginPath(); g.roundRect(Z(b.x0) - 4, Z(b.y0) - 26, tw, 19, 9); g.fill();
+    g.fillStyle = '#fff'; g.textAlign = 'left'; g.fillText(label, Z(b.x0) + 3, Z(b.y0) - 12);
+    g.restore();
+  }
+
+  // retângulo de seleção (arrastar no vazio)
+  if (drag?.kind === 'marquee' && drag.moved) {
+    const r = marqueeRect(drag);
+    for (const id of drag.preview) {
+      const f = findElement(id);
+      if (!f) continue;
+      const si = f.page.slots.indexOf(f.slot);
+      const { ox, oy } = elWorld(f.page, si, f.el);
+      drawBox(g, f.el, ox, oy, 'rgba(46,110,230,0.9)');
+    }
+    g.save();
+    g.fillStyle = 'rgba(46,110,230,0.1)';
+    g.strokeStyle = 'rgba(46,110,230,0.9)'; g.lineWidth = 1;
+    g.fillRect(Z(r.x0), Z(r.y0), Z(r.x1 - r.x0), Z(r.y1 - r.y0));
+    g.strokeRect(Z(r.x0) + 0.5, Z(r.y0) + 0.5, Z(r.x1 - r.x0), Z(r.y1 - r.y0));
+    g.restore();
+  }
+
   // guias de encaixe
   g.save();
   g.strokeStyle = 'rgba(230,40,160,0.9)'; g.lineWidth = 1;
@@ -262,6 +302,51 @@ function renderOverlay() {
     g.stroke();
   }
   g.restore();
+}
+
+// caixa (sem rotação) que envolve o elemento, em mm da folha
+function worldBox(f) {
+  const { ox, oy } = elWorld(f.page, f.slotIdx, f.el);
+  const { tr } = corners(f.el, ox, oy);
+  const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => tr((a * f.el.w) / 2, (b * f.el.h) / 2));
+  return {
+    x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])),
+    y0: Math.min(...pts.map((p) => p[1])), y1: Math.max(...pts.map((p) => p[1])),
+  };
+}
+export function groupBounds(list) {
+  const bs = list.map(worldBox);
+  return {
+    x0: Math.min(...bs.map((b) => b.x0)), x1: Math.max(...bs.map((b) => b.x1)),
+    y0: Math.min(...bs.map((b) => b.y0)), y1: Math.max(...bs.map((b) => b.y1)),
+  };
+}
+function marqueeRect(d) {
+  return {
+    x0: Math.min(d.start.x, d.cur.x), x1: Math.max(d.start.x, d.cur.x),
+    y0: Math.min(d.start.y, d.cur.y), y1: Math.max(d.start.y, d.cur.y),
+  };
+}
+// todos os elementos da folha aberta que o retângulo encosta
+function elementsInRect(r) {
+  const out = [];
+  spreadPages().forEach((page) => {
+    if (!page) return;
+    page.slots.forEach((slot, si) => {
+      for (const el of slot.elements) {
+        if (el.locked) continue;
+        const b = worldBox({ page, slotIdx: si, el });
+        if (b.x1 >= r.x0 && b.x0 <= r.x1 && b.y1 >= r.y0 && b.y0 <= r.y1) out.push(el.id);
+      }
+    });
+  });
+  return out;
+}
+// ids selecionados hoje (um ou vários)
+function currentIds() {
+  if (state.multi?.length >= 2) return [...state.multi];
+  const s = getSel();
+  return s?.el ? [s.el.id] : [];
 }
 
 function drawBox(g, el, ox, oy, color, dash) {
@@ -333,18 +418,73 @@ function handleAt(sel, m) {
 
 const CURSORS = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', rot: 'grab' };
 
+// Ctrl + arrastar: deixa o original no lugar e passa a arrastar a cópia
+function makeDragCopies() {
+  const ids = [];
+  for (const it of drag.items) {
+    const f = findElement(it.el.id);
+    if (!f) continue;
+    const c = { ...clone(f.el), id: uid() }; // mesma semente: cópia idêntica (inclusive a borda de aquarela)
+    f.slot.elements.splice(f.slot.elements.indexOf(f.el) + 1, 0, c);
+    ids.push(c.id);
+    it.el = c;
+  }
+  drag.copied = true;
+  setMulti(ids);
+}
+
+function startGroupMove(m) {
+  const items = currentIds().map(findElement).filter(Boolean).map((f) => ({ el: f.el, x0: f.el.x, y0: f.el.y }));
+  if (items.length) drag = { kind: 'group', start: m, items };
+}
+
 function onDown(e) {
   if (e.button !== 0) return;
   ov.setPointerCapture(e.pointerId);
   const m = toMM(e);
   const sel = getSel();
-  const hd = handleAt(sel, m);
+  const multiNow = state.multi?.length >= 2;
+  const hd = multiNow ? null : handleAt(sel, m);
   if (hd) {
     drag = { kind: hd.id === 'rot' ? 'rotate' : 'resize', hd, start: m, el0: clone(sel.el), page: sel.page, slotIdx: sel.slotIdx };
     return;
   }
   const hit = hitTest(m);
-  if (!hit) { select(null); return; }
+
+  // Ctrl (+ Shift) + arrastar: duplica, como no Word
+  const copy = (e.ctrlKey || e.metaKey) && !!hit?.el;
+  if (copy) {
+    const inMulti = multiNow && state.multi.includes(hit.el.id);
+    if (!inMulti && (!sel?.el || sel.el.id !== hit.el.id)) select({ pageId: hit.page.id, slot: hit.slotIdx, elId: hit.el.id });
+    startGroupMove(m);
+    if (drag) drag.copy = true;
+    return;
+  }
+
+  // Shift + clique: adiciona ou tira o item da seleção
+  if (e.shiftKey && hit?.el) {
+    const ids = currentIds();
+    const i = ids.indexOf(hit.el.id);
+    if (i >= 0) ids.splice(i, 1); else ids.push(hit.el.id);
+    if (ids.length) setMulti(ids);
+    else select({ pageId: hit.page.id, slot: hit.slotIdx, elId: null });
+    if (i < 0) startGroupMove(m);
+    return;
+  }
+
+  // clique no vazio: começa o retângulo de seleção
+  if (!hit?.el) {
+    if (!e.shiftKey) {
+      if (hit) select({ pageId: hit.page.id, slot: hit.slotIdx, elId: null });
+      else select(null);
+    }
+    drag = { kind: 'marquee', start: m, cur: m, base: e.shiftKey ? currentIds() : [], moved: false, preview: [] };
+    return;
+  }
+
+  // clique num item da seleção múltipla: arrasta o grupo todo
+  if (multiNow && state.multi.includes(hit.el.id)) { startGroupMove(m); return; }
+
   const samePhoto = sel?.el && hit.el && hit.el.id === sel.el.id && hit.el.type === 'photo';
   if ((state.panMode && samePhoto) || (e.altKey && hit.el?.type === 'photo' && hit.el.src)) {
     if (!samePhoto) select({ pageId: hit.page.id, slot: hit.slotIdx, elId: hit.el.id });
@@ -370,6 +510,25 @@ function onMove(e) {
     ov.style.cursor = hd ? CURSORS[hd.id] : state.panMode && hit?.el?.id === sel?.el?.id ? 'grab' : hit?.el ? 'move' : 'default';
     return;
   }
+  if (drag.kind === 'marquee') {
+    drag.cur = m;
+    if (!drag.moved && Math.hypot(m.x - drag.start.x, m.y - drag.start.y) * z < 4) return;
+    drag.moved = true;
+    drag.preview = [...new Set([...drag.base, ...elementsInRect(marqueeRect(drag))])];
+    requestRender();
+    return;
+  }
+  if (drag.kind === 'group') {
+    let dx = m.x - drag.start.x, dy = m.y - drag.start.y;
+    if (!drag.changed && Math.hypot(dx, dy) * z < (drag.copy ? 4 : 2)) return;
+    if (drag.copy && !drag.copied) makeDragCopies();
+    if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; } // Shift: só na horizontal ou na vertical
+    for (const it of drag.items) { it.el.x = round(it.x0 + dx); it.el.y = round(it.y0 + dy); }
+    drag.changed = true;
+    emit('live');
+    requestRender();
+    return;
+  }
   const el = getSel()?.el;
   if (!el) return;
   const dx = m.x - drag.start.x, dy = m.y - drag.start.y;
@@ -378,8 +537,11 @@ function onMove(e) {
   snapLines = [];
 
   if (drag.kind === 'move') {
-    let nx = e0.x + dx, ny = e0.y + dy;
-    if (!e.ctrlKey) ({ nx, ny } = snapMove(drag.page, drag.slotIdx, el, nx, ny));
+    let mdx = dx, mdy = dy;
+    if (e.shiftKey) { if (Math.abs(mdx) > Math.abs(mdy)) mdy = 0; else mdx = 0; } // Shift: trava a direção
+    let nx = e0.x + mdx, ny = e0.y + mdy;
+    if (!e.altKey) ({ nx, ny } = snapMove(drag.page, drag.slotIdx, el, nx, ny));
+    if (e.shiftKey) { if (mdy === 0) ny = e0.y; else nx = e0.x; }
     el.x = round(nx); el.y = round(ny);
   } else if (drag.kind === 'resize') {
     const a = rad(e0.rotation || 0), c = Math.cos(a), s = Math.sin(a);
@@ -419,6 +581,13 @@ function onMove(e) {
 }
 
 function onUp() {
+  if (drag?.kind === 'marquee') {
+    const d = drag;
+    drag = null;
+    if (d.moved && d.preview.length) setMulti(d.preview);
+    requestRender();
+    return;
+  }
   if (drag?.changed) commit();
   drag = null;
   if (snapLines.length) { snapLines = []; requestRender(); }
@@ -545,27 +714,43 @@ function onKey(e) {
   if (ctrl && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); return; }
   if (typing) return;
   const sel = getSel();
+  const multi = getMulti();
   if (e.key === 'Escape') {
     if (state.panMode) { state.panMode = false; emit('select'); }
-    else if (sel?.el) select({ ...state.sel, elId: null });
+    else if (sel?.el || multi.length) select({ ...state.sel, elId: null });
     else select(null);
     return;
   }
   if (e.key === 'PageDown') { state.spread = Math.min(spreadCount() - 1, state.spread + 1); state.sel = null; emit('select'); return; }
   if (e.key === 'PageUp') { state.spread = Math.max(0, state.spread - 1); state.sel = null; emit('select'); return; }
-  if (!sel?.el) return;
+  if (ctrl && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAllInSpread(); return; }
+  if (!sel?.el && !multi.length) return;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); return; }
   if (ctrl && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelected(); return; }
   const step = e.shiftKey ? 5 : 0.5;
   const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
   if (mv) {
     e.preventDefault();
-    sel.el.x = round(sel.el.x + mv[0]); sel.el.y = round(sel.el.y + mv[1]);
+    const els = multi.length ? multi.map((f) => f.el) : [sel.el];
+    for (const el of els) { el.x = round(el.x + mv[0]); el.y = round(el.y + mv[1]); }
     emit('live'); requestRender(); commitLater();
   }
 }
 
+export function selectAllInSpread() {
+  const ids = [];
+  for (const p of spreadPages()) if (p) for (const s of p.slots) for (const el of s.elements) if (!el.locked) ids.push(el.id);
+  setMulti(ids);
+}
+
 export function deleteSelected() {
+  const multi = getMulti();
+  if (multi.length) {
+    for (const f of multi) f.slot.elements.splice(f.slot.elements.indexOf(f.el), 1);
+    state.sel = { ...state.sel, elId: null };
+    commit();
+    return;
+  }
   const sel = getSel();
   if (!sel?.el) return;
   sel.slot.elements.splice(sel.slot.elements.indexOf(sel.el), 1);
@@ -574,11 +759,55 @@ export function deleteSelected() {
 }
 
 export function duplicateSelected() {
+  const multi = getMulti();
+  if (multi.length) {
+    const ids = [];
+    for (const f of multi) {
+      const c = { ...clone(f.el), id: uid(), seed: randSeed(), x: f.el.x + 4, y: f.el.y + 4 };
+      f.slot.elements.splice(f.slot.elements.indexOf(f.el) + 1, 0, c);
+      ids.push(c.id);
+    }
+    commit();
+    setMulti(ids);
+    return;
+  }
   const sel = getSel();
   if (!sel?.el) return;
   const c = { ...clone(sel.el), id: uid(), seed: randSeed(), x: sel.el.x + 4, y: sel.el.y + 4 };
   sel.slot.elements.splice(sel.slot.elements.indexOf(sel.el) + 1, 0, c);
   state.sel = { ...state.sel, elId: c.id };
+  commit();
+}
+
+// alinha os itens selecionados em relação à caixa do grupo
+export function alignSelected(mode) {
+  const multi = getMulti();
+  if (multi.length < 2) return;
+  const b = groupBounds(multi);
+  const boxes = multi.map((f) => ({ f, b: worldBox(f) }));
+  if (mode === 'dist-h' || mode === 'dist-v') {
+    const hz = mode === 'dist-h';
+    const sorted = [...boxes].sort((p, q) => (hz ? p.b.x0 - q.b.x0 : p.b.y0 - q.b.y0));
+    const total = sorted.reduce((s, x) => s + (hz ? x.b.x1 - x.b.x0 : x.b.y1 - x.b.y0), 0);
+    const gap = ((hz ? b.x1 - b.x0 : b.y1 - b.y0) - total) / (sorted.length - 1);
+    let pos = hz ? b.x0 : b.y0;
+    for (const { f, b: eb } of sorted) {
+      const d = pos - (hz ? eb.x0 : eb.y0);
+      if (hz) f.el.x = round(f.el.x + d); else f.el.y = round(f.el.y + d);
+      pos += (hz ? eb.x1 - eb.x0 : eb.y1 - eb.y0) + gap;
+    }
+  } else {
+    for (const { f, b: eb } of boxes) {
+      let dx = 0, dy = 0;
+      if (mode === 'left') dx = b.x0 - eb.x0;
+      if (mode === 'right') dx = b.x1 - eb.x1;
+      if (mode === 'center') dx = (b.x0 + b.x1) / 2 - (eb.x0 + eb.x1) / 2;
+      if (mode === 'top') dy = b.y0 - eb.y0;
+      if (mode === 'bottom') dy = b.y1 - eb.y1;
+      if (mode === 'middle') dy = (b.y0 + b.y1) / 2 - (eb.y0 + eb.y1) / 2;
+      f.el.x = round(f.el.x + dx); f.el.y = round(f.el.y + dy);
+    }
+  }
   commit();
 }
 

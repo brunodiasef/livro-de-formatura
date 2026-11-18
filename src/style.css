@@ -152,6 +152,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgba(168, 129, 58
 .sw.gold { background: linear-gradient(135deg, #B8892F, #EBD18A 30%, #C29A42 52%, #F2DD9E 74%, #A47A2A); }
 .colors input[type=color] { width: 30px; height: 26px; border: 1px solid var(--line-2); border-radius: 6px; padding: 1px; background: #fff; cursor: pointer; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.align-row { display: flex; align-items: center; gap: 4px; }
+.align-row .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+.abtn { width: 36px; height: 34px; border: 1px solid var(--line-2); border-radius: 8px; background: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: var(--text); }
+.abtn:hover { background: var(--accent-soft); border-color: #d8c2a5; color: var(--accent); }
 .actions .btn { flex: 1; }
 .hint { margin: 0; color: var(--muted); font-size: 12px; }
 .hint.warn { color: var(--danger); }
