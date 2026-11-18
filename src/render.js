@@ -407,7 +407,7 @@ function drawDeco(ctx, el, o) {
       ctx.fillStyle = paint(ctx, el.color, x * s, y * s, w * s, h * s);
       ctx.font = `700 ${h * 1.9 * s}px "Cormorant Garamond"`;
       ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-      ctx.fillText('“', 0, y * s - h * 0.05 * s);
+      ctx.fillText(el.variant === 'close' ? '”' : '“', 0, y * s - h * 0.05 * s);
       ctx.restore();
       break;
     }
@@ -478,6 +478,7 @@ export function drawElement(ctx, el, o) {
   ctx.save();
   ctx.translate(el.x + el.w / 2, el.y + el.h / 2);
   if (el.rotation) ctx.rotate(rad(el.rotation));
+  if (el.type === 'deco' && (el.flipX || el.flipY)) ctx.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);
   ctx.globalAlpha = el.opacity ?? 1;
   if (el.type === 'photo') drawPhoto(ctx, el, o);
   else if (el.type === 'text') drawText(ctx, el, o);

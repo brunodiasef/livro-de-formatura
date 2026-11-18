@@ -82,7 +82,7 @@ function buildTopbar() {
   redoBtn = btn('', { icon: 'redo', title: 'Refazer (Ctrl+Y)', onClick: redo });
   saveStatus = h('span', { class: 'save-status' });
   const decoBtn = btn('Enfeite', { icon: 'sparkle', title: 'Adicionar enfeite' });
-  decoBtn.addEventListener('click', () => menu(decoBtn, DECOS.map((d) => ({ label: d.name, onClick: () => addDeco(d.id) }))));
+  decoBtn.addEventListener('click', () => menu(decoBtn, DECOS.map((d) => ({ label: d.name, onClick: () => addDeco(d) }))));
   const projBtn = btn('Projeto', { icon: 'folder' });
   projBtn.addEventListener('click', () => menu(projBtn, [
     { label: 'Salvar cópia do projeto (.livro.json)…', icon: 'save', onClick: saveProjectFile },
@@ -163,9 +163,8 @@ function addElement(el) {
 }
 function addText() { addElement(T({ ...BODY, text: 'Digite o texto aqui', w: 60, h: 14, autoFit: true })); }
 function addPhoto() { addElement(P({ frame: 'rounded', w: 40, h: 50 })); }
-function addDeco(kind) {
-  const d = DECOS.find((x) => x.id === kind);
-  addElement(D(kind, { w: d.w, h: d.h, rotation: d.rotation || 0, variant: d.variant, color: d.color || 'gold', opacity: d.opacity ?? 1 }));
+function addDeco(d) {
+  addElement(D(d.id, { w: d.w, h: d.h, rotation: d.rotation || 0, variant: d.variant, color: d.color || 'gold', opacity: d.opacity ?? 1 }));
 }
 
 // ───────── painel esquerdo: folhas ─────────
@@ -636,11 +635,15 @@ function renderPhotoProps(body, s) {
 // ───── enfeite ─────
 function renderDecoProps(body, s) {
   const el = s.el;
+  if (el.kind === 'quote' && !el.variant) el.variant = 'open';
   const d = DECOS.find((x) => x.id === el.kind);
   body.append(
-    header(d?.name || 'Enfeite', where(s)),
+    header(el.kind === 'quote' ? 'Aspas' : d?.name || 'Enfeite', where(s)),
+    el.kind === 'quote' ? section('Tipo', segInput(el, 'variant', [['open', null, 'Aspas de abrir', '“  Abrir'], ['close', null, 'Aspas de fechar', '”  Fechar']])) : null,
     section('Cor', colorInput(el, 'color', { gold: el.kind !== 'wash' && el.kind !== 'panel' })),
     el.kind === 'divider' ? section('Estilo', segInput(el, 'variant', [['end', null, 'Brilho no fim', '── ✦'], ['center', null, 'Brilho no meio', '─ ✦ ─'], ['plain', null, 'Só linha', '───']])) : null,
+    section('Espelhar',
+      row(checkInput(el, 'flipX', '↔ Horizontal'), checkInput(el, 'flipY', '↕ Vertical'))),
     geometry(el),
     elementActions(),
   );
