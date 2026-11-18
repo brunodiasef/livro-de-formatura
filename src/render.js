@@ -543,8 +543,9 @@ export function drawBackground(ctx, page, side, o) {
     ctx.translate(outer, H * 0.6);
     ctx.rotate(dir * rad(-38));
     ctx.globalAlpha = bg === 'noite' ? 0.7 : 0.85;
-    ctx.fillStyle = goldGradient(ctx, -3, -22, 6, 44);
-    ctx.fillRect(-3.2, -24, 6.4, 48);
+    // curta o bastante para não entrar na área segura do texto (10 mm da borda)
+    ctx.fillStyle = goldGradient(ctx, -3, -14, 6, 28);
+    ctx.fillRect(-3, -13, 6, 26);
     ctx.restore();
     // quadradinho dourado no canto de baixo e losango no canto de cima
     drawDeco2(ctx, 'goldSquare', outer + dir * 9.5, H - 10.5, 6.5, 6.5, seed, o);

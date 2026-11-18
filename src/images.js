@@ -9,6 +9,13 @@ export const getImage = (id) => (id ? store.get(id) : null);
 
 export async function importFile(file) {
   const src = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  // foto já em tamanho adequado: guarda o arquivo original (mais rápido e sem perder qualidade)
+  if (Math.max(src.width, src.height) <= MAX_SIDE && /^image\/(jpeg|png)$/.test(file.type)) {
+    src.close?.();
+    const id = uid();
+    await putBlob(id, file);
+    return id;
+  }
   const k = Math.min(1, MAX_SIDE / Math.max(src.width, src.height));
   const w = Math.round(src.width * k), hgt = Math.round(src.height * k);
   const c = document.createElement('canvas');
@@ -25,7 +32,7 @@ export async function importFile(file) {
 }
 
 async function addBlob(id, blob) {
-  const bmp = await createImageBitmap(blob);
+  const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
   store.set(id, { bmp, w: bmp.width, h: bmp.height, blob });
 }
 

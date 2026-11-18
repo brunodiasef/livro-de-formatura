@@ -2,6 +2,8 @@
 import { state, commit, newPage, emit } from './state.js';
 import { TEMPLATES } from './templates.js';
 import { importFile } from './images.js';
+import { layoutText } from './render.js';
+import { readDocxStudents } from './docx.js';
 import { h } from './util.js';
 import { modal, toast, btn } from './ui-kit.js';
 
@@ -29,38 +31,65 @@ export function openBatchDialog() {
   const list = h('div', { class: 'batch-list' });
   const countLbl = h('span', { class: 'muted' });
 
+  let counter = 0;
   const renderList = () => {
-    if (opts.sort) students.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    students.sort(opts.sort ? (a, b) => (a.name || '￿').localeCompare(b.name || '￿', 'pt-BR') : (a, b) => a.order - b.order);
     list.innerHTML = '';
     if (!students.length) {
-      list.append(h('div', { class: 'batch-empty' }, 'Nenhuma foto ainda. Clique em "Selecionar fotos" ou arraste as fotos para cá.'));
+      list.append(h('div', { class: 'batch-empty' }, 'Nenhum aluno ainda. Importe o arquivo do Word, selecione as fotos ou arraste os arquivos para cá.'));
     }
     students.forEach((st, i) => {
-      const name = h('input', { value: st.name, placeholder: 'Nome do aluno' });
-      name.addEventListener('input', () => { st.name = name.value; });
-      const text = h('textarea', { rows: 2, placeholder: 'Texto / mensagem do aluno (opcional)' });
+      const name = h('input', { value: st.name, placeholder: '⚠ Digite o nome do aluno' });
+      const row = h('div', { class: 'batch-row' + (st.name.trim() ? '' : ' missing') });
+      name.addEventListener('input', () => { st.name = name.value; row.classList.toggle('missing', !st.name.trim()); });
+      const text = h('textarea', { rows: 3, placeholder: 'Texto / mensagem do aluno (opcional)' });
       text.value = st.text;
       text.addEventListener('input', () => { st.text = text.value; });
-      list.append(h('div', { class: 'batch-row' },
+      list.append(row);
+      row.append(
         h('span', { class: 'num' }, String(i + 1)),
         h('img', { src: st.url, alt: '' }),
         h('div', { class: 'batch-fields' }, name, text),
         h('button', { class: 'mini', title: 'Remover', onClick: () => { URL.revokeObjectURL(st.url); students.splice(i, 1); renderList(); } }, '×'),
-      ));
+      );
     });
     countLbl.textContent = students.length ? `${students.length} aluno(s)` : '';
-    goBtn.querySelector('span').textContent = students.length ? `Montar páginas (${students.length} alunos)` : 'Montar páginas';
+    goBtn.querySelector('span:not(.ico)').textContent = students.length ? `Montar páginas (${students.length} alunos)` : 'Montar páginas';
   };
 
-  const addFiles = (files) => {
+  const addFiles = async (files) => {
     for (const f of files) {
+      if (/\.docx$/i.test(f.name)) { await addDocx(f); continue; }
       if (!f.type.startsWith('image/')) continue;
-      students.push({ file: f, url: URL.createObjectURL(f), name: nameFromFile(f.name), text: '' });
+      students.push({ file: f, url: URL.createObjectURL(f), name: nameFromFile(f.name), text: '', order: counter++ });
     }
     renderList();
   };
 
-  const pickBtn = btn('Selecionar fotos…', { icon: 'image', cls: 'primary', onClick: () => {
+  const addDocx = async (f) => {
+    try {
+      toast('Lendo o arquivo do Word…');
+      const found = await readDocxStudents(f);
+      if (!found.length) { toast('Não encontrei fotos de alunos neste arquivo.', 'warn'); return; }
+      for (const st of found) students.push({ ...st, url: URL.createObjectURL(st.file), order: counter++ });
+      // mantém a ordem do arquivo do Word
+      opts.sort = false; sortCb.checked = false;
+      renderList();
+      const noName = found.filter((s) => !s.name).length;
+      toast(`${found.length} aluno(s) encontrados no arquivo, na mesma ordem do Word.` + (noName ? ` ${noName} sem nome — preencha o nome destacado em vermelho.` : ''), noName ? 'warn' : 'ok', 7000);
+    } catch (err) {
+      console.error(err);
+      toast('Não consegui ler o arquivo do Word: ' + err.message, 'error', 7000);
+    }
+  };
+
+  const docxBtn = btn('Importar do Word (.docx)…', { icon: 'file', cls: 'primary', onClick: () => {
+    const inp = h('input', { type: 'file', accept: '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    inp.addEventListener('change', () => inp.files?.[0] && addFiles([inp.files[0]]));
+    inp.click();
+  } });
+
+  const pickBtn = btn('Selecionar fotos…', { icon: 'image', onClick: () => {
     const inp = h('input', { type: 'file', accept: 'image/*', multiple: true });
     inp.addEventListener('change', () => addFiles([...inp.files]));
     inp.click();
@@ -103,12 +132,14 @@ export function openBatchDialog() {
   const goBtn = btn('Montar páginas', { icon: 'users', cls: 'primary', onClick: async () => {
     if (!students.length) { toast('Selecione as fotos primeiro.', 'warn'); return; }
     goBtn.disabled = true;
-    goBtn.querySelector('span').textContent = 'Montando…';
+    goBtn.querySelector('span:not(.ico)').textContent = 'Montando…';
     try {
-      const n = await fill(students, opts);
+      const label = goBtn.querySelector('span:not(.ico)');
+      const { n, small } = await fill(students, opts, (k, total) => { label.textContent = `Montando ${k} de ${total}…`; });
       students.forEach((s) => URL.revokeObjectURL(s.url));
       dlg.close();
       toast(`${n} aluno(s) inseridos no livro.`, 'ok');
+      if (small.length) toast(`Texto longo, a letra ficou pequena (abaixo de 7 pt) para: ${small.join(', ')}. Para esses alunos, aumente a caixa de texto ou use o modelo "Mensagem de despedida".`, 'warn', 14000);
     } catch (err) {
       console.error(err);
       toast('Erro ao montar as páginas: ' + err.message, 'error');
@@ -118,8 +149,9 @@ export function openBatchDialog() {
 
   const body = h('div', { class: 'batch' },
     h('div', { class: 'batch-top' },
-      h('p', {}, 'Selecione as fotos de todos os alunos de uma vez. O nome é tirado do nome do arquivo (ex.: ', h('code', {}, 'ana_beatriz_souza.jpg'), ' → Ana Beatriz Souza) — confira e corrija abaixo.'),
-      h('div', { class: 'actions' }, pickBtn, h('label', { class: 'check' }, sortCb, h('span', {}, 'Ordem alfabética')), countLbl),
+      h('p', {}, h('b', {}, 'Arquivo do Word: '), 'um aluno por página, com a foto, a mensagem e o nome embaixo — o app separa tudo sozinho. ',
+        h('b', {}, 'Ou fotos soltas: '), 'o nome vem do nome do arquivo (', h('code', {}, 'ana_beatriz_souza.jpg'), ' → Ana Beatriz Souza). Confira e corrija abaixo antes de montar.'),
+      h('div', { class: 'actions' }, docxBtn, pickBtn, h('label', { class: 'check' }, sortCb, h('span', {}, 'Ordem alfabética')), countLbl),
     ),
     list,
     h('details', { class: 'paste' },
@@ -143,7 +175,21 @@ export function openBatchDialog() {
   renderList();
 }
 
-async function fill(students, opts) {
+// Texto longo: sobe o nome e estica a caixa da mensagem até o fim do espaço do aluno,
+// para a letra não ficar pequena demais.
+function expandForLongText(slot, nm, bd, measure) {
+  if (!nm || nm.rotation || bd.rotation || Math.abs(nm.x - bd.x) > 3) return;
+  if (layoutText(measure, bd, 8).size >= 8.5) return;
+  const div = slot.elements.find((e) => e.type === 'deco' && e.kind === 'divider' && Math.abs(e.x - bd.x) < 3 && e.y > bd.y);
+  const bottom = 94; // limite da área segura da metade da página
+  nm.y = 10;
+  bd.y = nm.y + nm.h + 1.5;
+  bd.h = (div ? bottom - 5 : bottom) - bd.y;
+  bd.lineHeight = Math.min(bd.lineHeight || 1.5, 1.45);
+  if (div) div.y = bottom - 3;
+}
+
+async function fill(students, opts, onProgress) {
   const targets = [];
   if (opts.useEmpty) {
     for (const page of state.book.pages) {
@@ -155,7 +201,10 @@ async function fill(students, opts) {
     }
   }
   let k = 0;
+  const small = [];
+  const measure = document.createElement('canvas').getContext('2d');
   for (const st of students) {
+    onProgress?.(k + 1, students.length);
     let slot = targets[k++];
     if (!slot) {
       const p = newPage('halves', [opts.top, opts.bottom]);
@@ -169,10 +218,14 @@ async function fill(students, opts) {
     const nm = slot.elements.find((e) => e.type === 'text' && e.role === 'name');
     if (nm && st.name.trim()) nm.text = st.name.trim();
     const bd = slot.elements.find((e) => e.type === 'text' && e.role === 'body');
-    if (bd && st.text.trim()) bd.text = st.text.trim();
+    if (bd && st.text.trim()) {
+      bd.text = st.text.trim();
+      expandForLongText(slot, nm, bd, measure);
+      if (layoutText(measure, bd, 8).size < 7) small.push(st.name.trim().split(' ')[0] || 'sem nome');
+    }
   }
   state.sel = null;
   commit();
   emit('change', { rebuild: true });
-  return students.length;
+  return { n: students.length, small };
 }
