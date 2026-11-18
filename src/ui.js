@@ -549,7 +549,7 @@ function renderTextProps(body, s) {
   updateFitInfo();
   syncers.push(updateFitInfo);
 
-  body.append(
+  appendAll(body,
     header('Texto', where(s)),
     section(null, ta, fitInfo),
     section('Fonte',
@@ -576,6 +576,11 @@ function renderTextProps(body, s) {
 }
 
 // ───── foto ─────
+// fotos antigas não têm "feather": o controle mostra 50 (o visual de antes) até ser mexido
+// append que ignora itens vazios (null viraria o texto "null" na tela)
+const appendAll = (parent, ...kids) => parent.append(...kids.filter((k) => k != null && k !== false));
+const featherOf = (el) => ({ get feather() { return el.feather ?? 50; }, set feather(v) { el.feather = v; } });
+
 function renderPhotoProps(body, s) {
   const el = s.el;
   const has = !!el.src;
@@ -597,7 +602,7 @@ function renderPhotoProps(body, s) {
   });
   const borderable = ['rect', 'rounded', 'circle', 'arch'].includes(el.frame);
 
-  body.append(
+  appendAll(body,
     header('Foto', where(s)),
     section(null,
       h('div', { class: 'actions' },
@@ -621,6 +626,8 @@ function renderPhotoProps(body, s) {
         field('Borda', selectInput(el, 'border', [['null', 'Sem borda'], ['gold', 'Dourada'], ['#FFFFFF', 'Branca'], ['#3A2417', 'Marrom'], ['#1F1A17', 'Preta']])),
         field('Espessura', numInput(el, 'borderWidth', { step: 0.1, min: 0, max: 5 })),
       ) : null,
+      el.frame === 'brush' || el.frame === 'soft' ? field('Difusão da borda', rangeInput(featherOf(el), 'feather', { min: 0, max: 100, step: 1, show: (v) => (v === 50 ? '50 (padrão)' : String(v)) })) : null,
+      el.frame === 'brush' || el.frame === 'soft' ? h('p', { class: 'hint' }, 'Largura da faixa em degradê onde a foto vai sumindo. 0 = borda nítida, 100 = bem esfumada.') : null,
       el.frame !== 'brush' && el.frame !== 'soft' ? checkInput(el, 'shadow', 'Sombra suave') : null,
     ),
     has ? section('Cor e luz',
@@ -658,7 +665,7 @@ function renderMultiProps(body) {
   };
   const bump = (d) => { for (const el of texts) el.size = Math.max(4, Math.round((el.size + d) * 10) / 10); commit(); };
 
-  body.append(
+  appendAll(body,
     header(`${multi.length} itens selecionados`, parts.join(' · ')),
     section('Alinhar entre si',
       h('div', { class: 'align-row' },
@@ -699,7 +706,7 @@ function renderDecoProps(body, s) {
   const el = s.el;
   if (el.kind === 'quote' && !el.variant) el.variant = 'open';
   const d = DECOS.find((x) => x.id === el.kind);
-  body.append(
+  appendAll(body,
     header(el.kind === 'quote' ? 'Aspas' : d?.name || 'Enfeite', where(s)),
     el.kind === 'quote' ? section('Tipo', segInput(el, 'variant', [['open', null, 'Aspas de abrir', '“  Abrir'], ['close', null, 'Aspas de fechar', '”  Fechar']])) : null,
     section('Cor', colorInput(el, 'color', { gold: el.kind !== 'wash' && el.kind !== 'panel' })),
@@ -724,7 +731,7 @@ function renderPageProps(body) {
       onClick: () => { page.bg = b.id; commit(); },
     }, h('span', { class: 'bg-sw' + (b.border ? ' framed' : ''), style: { background: b.swatch } }), h('small', {}, b.name)));
   }
-  body.append(
+  appendAll(body,
     header(`Página ${pageIdx + 1}`, `${pageIdx % 2 ? 'direita' : 'esquerda'} da folha ${Math.floor(pageIdx / 2) + 1}`),
     section('Divisão da página',
       segInput({ get layout() { return page.layout; }, set layout(v) { setLayout(page, v); } }, 'layout', [

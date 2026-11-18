@@ -57,7 +57,7 @@ Ao trocar de modelo, a foto e os textos que você já inseriu continuam no lugar
 ## Fluxo sugerido
 
 1. **Alunos em lote**: selecione as fotos de todos os alunos de uma vez. O nome vem do nome do arquivo. Cole os textos e o app monta as páginas.
-2. Ajuste cada aluno. Duplo clique na foto ativa o enquadramento (arraste para posicionar, roda do mouse para dar zoom). Duplo clique no texto abre a edição.
+2. Ajuste cada aluno. Duplo clique na foto ativa o enquadramento (arraste para posicionar, roda do mouse para dar zoom). Duplo clique no texto abre a edição. Nas molduras aquarela, **Difusão da borda** (aba Editar › Moldura) controla a largura do degradê em que a foto vai sumindo: 0 deixa a borda nítida, 100 deixa bem esfumada.
 3. Monte a capa, os professores e a turma com os modelos de página inteira.
 4. **Exportar para impressão** → PDF A4. Na impressora, escolha **"Tamanho real / 100%"**.
 5. Para cortar, escolha a ordem das páginas:

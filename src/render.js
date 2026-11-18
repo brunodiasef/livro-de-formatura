@@ -3,7 +3,7 @@
 // O contexto recebido está em milímetros; o.s = pixels por milímetro.
 import { MM_PER_PT, PAGE_W, PAGE_H, HALF_H, C } from './constants.js';
 import { getImage, placeholderImage } from './images.js';
-import { rng, rad } from './util.js';
+import { rng, rad, clamp } from './util.js';
 
 // ───────── utilidades ─────────
 function makeCanvas(w, h) {
@@ -186,16 +186,23 @@ function drawBrush(ctx, el, fitEl, im, o) {
     g.drawImage(im.bmp, r.x, r.y, r.w, r.h);
     g.filter = 'none';
     const seed = el.seed || 7;
+    // difusão (0–100, padrão 50): largura da faixa em degradê onde a foto some
+    const fd = clamp(el.feather ?? 50, 0, 100) / 50;
     if (soft) {
-      const inner = blobPath(cx, cy, fw / 2 * 0.95, fh / 2 * 0.95, seed, 0.05, 2.6);
+      const s0 = md * 0.05, sMax = md * 0.11;
+      const sg = fd <= 1 ? s0 * fd : s0 + (fd - 1) * (sMax - s0);
+      // degradê mais largo cresce para dentro: no máximo, a foto já sumiu antes da borda do quadro (sem corte reto)
+      const t = Math.max(0, fd - 1);
+      const radius = (half) => half * 0.95 - t * (half * 0.95 - (half - 2.2 * sMax));
+      const inner = blobPath(cx, cy, Math.max(fw * 0.08, radius(fw / 2)), Math.max(fh * 0.08, radius(fh / 2)), seed, 0.05, 2.6);
       g.globalCompositeOperation = 'destination-in';
-      g.filter = `blur(${md * 0.05}px)`;
+      g.filter = sg > 0.2 ? `blur(${sg}px)` : 'none';
       g.fill(inner.path);
     } else {
       const inner = blobPath(cx, cy, fw / 2 * 0.97, fh / 2 * 0.97, seed, 0.05, 3.2);
       // 1) recorte irregular da foto
       g.globalCompositeOperation = 'destination-in';
-      g.filter = `blur(${md * 0.008}px)`;
+      g.filter = `blur(${md * 0.008 * Math.min(fd, 1.5)}px)`;
       g.fill(inner.path);
       // 2) escurece as bordas por dentro (efeito tinta)
       g.globalCompositeOperation = 'source-atop';
@@ -243,15 +250,18 @@ function drawBrush(ctx, el, fitEl, im, o) {
       g.filter = 'none';
       // 6) esmaece tudo nas pontas
       g.globalCompositeOperation = 'destination-in';
-      const fade = blobPath(cx, cy, fw / 2 * 1.08, fh / 2 * 1.08, seed + 5, 0.07, 3);
-      g.filter = `blur(${md * 0.035}px)`;
+      const f0 = md * 0.035;
+      const fs = fd <= 1 ? f0 * fd : f0 + (fd - 1) * md * 0.04;
+      const fshrink = 1.2 * Math.max(0, fs - f0);
+      const fade = blobPath(cx, cy, Math.max(fw * 0.1, fw / 2 * 1.08 - fshrink), Math.max(fh * 0.1, fh / 2 * 1.08 - fshrink), seed + 5, 0.07, 3);
+      g.filter = fs > 0.2 ? `blur(${fs}px)` : 'none';
       g.fill(fade.path);
     }
     g.filter = 'none';
     g.globalCompositeOperation = 'source-over';
     return c;
   };
-  const key = `b|${el.src || 'ph'}|${el.frame}|${el.w}|${el.h}|${fitEl.zoom}|${fitEl.panX}|${fitEl.panY}|${fitEl.fit}|${filterStr(fitEl)}|${el.seed}|${s.toFixed(4)}`;
+  const key = `b|${el.src || 'ph'}|${el.frame}|${el.w}|${el.h}|${fitEl.zoom}|${fitEl.panX}|${fitEl.panY}|${fitEl.fit}|${filterStr(fitEl)}|${el.seed}|${el.feather ?? 50}|${s.toFixed(4)}`;
   const c = o.cache === false ? make() : cached(key, make);
   ctx.drawImage(c, -el.w / 2 - m, -el.h / 2 - m, el.w + 2 * m, el.h + 2 * m);
 }
