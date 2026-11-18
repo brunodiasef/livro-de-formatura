@@ -193,6 +193,26 @@ export function moveSpread(i, dir) {
   commit();
 }
 
+// Move a folha `from` para a posição `to` (índice de inserção 0..n, como numa lista do PowerPoint).
+export function moveSpreadTo(from, to) {
+  const pages = state.book.pages;
+  const spreads = [];
+  for (let i = 0; i < pages.length; i += 2) spreads.push(pages.slice(i, i + 2));
+  if (from < 0 || from >= spreads.length) return false;
+  if (to > from) to -= 1;
+  to = Math.max(0, Math.min(spreads.length - 1, to));
+  if (to === from) return false;
+  const [moved] = spreads.splice(from, 1);
+  // uma folha com só 1 página que sai do fim ganha uma página em branco, para não desemparelhar as outras
+  let padded = false;
+  if (moved.length === 1 && to < spreads.length) { moved.push(newPage()); padded = true; }
+  spreads.splice(to, 0, moved);
+  state.book.pages = spreads.flat();
+  state.spread = to;
+  commit();
+  return { padded };
+}
+
 export function duplicateSpread(i) {
   const pages = state.book.pages.slice(i * 2, i * 2 + 2).map(clonePage);
   state.book.pages.splice(i * 2 + 2, 0, ...pages);

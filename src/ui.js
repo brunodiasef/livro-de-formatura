@@ -1,7 +1,7 @@
 // Interface: barra superior, lista de folhas (esquerda), modelos e propriedades (direita).
 import {
   state, on, emit, commit, commitLater, getSel, select, spreadCount, spreadPages, pageIndex, targetSlot,
-  addSpread, duplicateSpread, deleteSpread, moveSpread, duplicatePage, deletePage, movePage, insertPageAfter,
+  addSpread, duplicateSpread, deleteSpread, moveSpread, moveSpreadTo,duplicatePage, deletePage, movePage, insertPageAfter,
   setLayout, applyTemplate, undo, redo, canUndo, canRedo, newPage,
 } from './state.js';
 import { TEMPLATES, getTemplate, T, P, D, BODY, instantiate } from './templates.js';
@@ -249,7 +249,7 @@ function refreshLeft() {
 
 function spreadCard(i) {
   const c = h('canvas', { class: 'sp-canvas' });
-  const card = h('div', { class: 'spread', 'data-i': i, onClick: () => goSpread(i) },
+  const card = h('div', { class: 'spread', 'data-i': i, title: 'Clique para abrir · arraste para mudar a ordem', onPointerdown: (e) => startCardDrag(e, i, card) },
     c,
     h('div', { class: 'sp-meta' },
       h('span', { class: 'sp-title' }, `Folha ${i + 1}`),
@@ -265,6 +265,88 @@ function spreadCard(i) {
     ),
   );
   return card;
+}
+
+// Arrastar uma folha na lista para mudar a ordem (como os slides do PowerPoint)
+function startCardDrag(e, from, card) {
+  if (e.button !== 0 || e.target.closest('button')) return;
+  e.preventDefault();
+  const sx = e.clientX, sy = e.clientY;
+  const r0 = card.getBoundingClientRect();
+  const offX = sx - r0.left, offY = sy - r0.top;
+  let dragging = false, ghost, line, insertAt = null, lastY = sy, raf = 0;
+
+  const begin = () => {
+    dragging = true;
+    card.classList.add('dragging');
+    document.body.classList.add('sheet-dragging');
+    ghost = card.cloneNode(true);
+    ghost.className = 'spread spread-ghost';
+    ghost.style.width = r0.width + 'px';
+    const src = card.querySelector('canvas'), dst = ghost.querySelector('canvas');
+    dst.width = src.width; dst.height = src.height;
+    dst.getContext('2d').drawImage(src, 0, 0);
+    document.body.append(ghost);
+    line = h('div', { class: 'drop-line' });
+    leftList.append(line);
+    tick();
+  };
+
+  const updateInsert = () => {
+    const cards = [...leftList.querySelectorAll('.spread')];
+    let idx = cards.length;
+    for (let k = 0; k < cards.length; k++) {
+      const r = cards[k].getBoundingClientRect();
+      if (lastY < r.top + r.height / 2) { idx = k; break; }
+    }
+    insertAt = idx;
+    const noop = idx === from || idx === from + 1;
+    line.style.display = noop ? 'none' : 'block';
+    if (!noop) {
+      const ref = cards[idx] || cards[cards.length - 1];
+      line.style.top = (idx < cards.length ? ref.offsetTop - 6 : ref.offsetTop + ref.offsetHeight + 4) + 'px';
+    }
+  };
+
+  const tick = () => {
+    if (!dragging) return;
+    const lr = leftList.getBoundingClientRect();
+    const edge = 60;
+    if (lastY < lr.top + edge) leftList.scrollTop -= Math.ceil((lr.top + edge - lastY) / 4);
+    else if (lastY > lr.bottom - edge) leftList.scrollTop += Math.ceil((lastY - (lr.bottom - edge)) / 4);
+    updateInsert();
+    raf = requestAnimationFrame(tick);
+  };
+
+  const move = (ev) => {
+    lastY = ev.clientY;
+    if (!dragging) {
+      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
+      begin();
+    }
+    ghost.style.transform = `translate(${ev.clientX - offX}px, ${ev.clientY - offY}px) rotate(-1.5deg)`;
+  };
+
+  const end = (ev, cancel = false) => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('keydown', esc);
+    if (!dragging) { if (!cancel) goSpread(from); return; }
+    dragging = false;
+    cancelAnimationFrame(raf);
+    ghost.remove(); line.remove();
+    card.classList.remove('dragging');
+    document.body.classList.remove('sheet-dragging');
+    if (cancel || insertAt == null || insertAt === from || insertAt === from + 1) return;
+    state.sel = null;
+    const res = moveSpreadTo(from, insertAt);
+    if (res?.padded) toast('Uma página em branco foi adicionada para completar a folha.', 'info');
+  };
+  const up = (ev) => end(ev);
+  const esc = (ev) => { if (ev.key === 'Escape') end(ev, true); };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('keydown', esc);
 }
 
 function miniBtn(ic, title, fn) {
