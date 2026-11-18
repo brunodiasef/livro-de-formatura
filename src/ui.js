@@ -291,11 +291,18 @@ function syncInputs() {
   for (const f of syncers) f();
 }
 
+// posição da rolagem da aba Modelos, para não voltar ao topo ao escolher um modelo
+let templatesScroll = 0;
+let renderedTab = null;
+
 function renderRight() {
   const s = getSel();
   boundEl = s?.el || null;
   boundSig = selSig();
   syncers = [];
+  const oldBody = rightEl.querySelector('.right-body');
+  if (oldBody && renderedTab === 'templates') templatesScroll = oldBody.scrollTop;
+  renderedTab = rightTab;
   rightEl.innerHTML = '';
   const tabs = h('div', { class: 'tabs' },
     h('button', { class: 'tab' + (rightTab === 'templates' ? ' on' : ''), onClick: () => { rightTab = 'templates'; renderRight(); } }, icon('grid'), 'Modelos'),
@@ -304,8 +311,10 @@ function renderRight() {
   rightEl.append(tabs);
   const body = h('div', { class: 'right-body' });
   rightEl.append(body);
-  if (rightTab === 'templates') renderTemplates(body);
-  else if (s?.el?.type === 'text') renderTextProps(body, s);
+  if (rightTab === 'templates') {
+    renderTemplates(body);
+    body.scrollTop = templatesScroll;
+  } else if (s?.el?.type === 'text') renderTextProps(body, s);
   else if (s?.el?.type === 'photo') renderPhotoProps(body, s);
   else if (s?.el?.type === 'deco') renderDecoProps(body, s);
   else renderPageProps(body);
