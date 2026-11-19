@@ -1,7 +1,7 @@
 // Área central: mostra a folha A4 aberta e trata cliques, arrastes, encaixes e fotos soltas.
 import {
   state, on, emit, commit, getSel, select, spreadPages, pageIndex, findElement, undo, redo, commitLater, spreadCount,
-  setMulti, getMulti,
+  setMulti, getMulti, targetSlot,
 } from './state.js';
 import { renderPage, slotOffset, photoDpi, imageRect } from './render.js';
 import { getImage, importFile } from './images.js';
@@ -43,6 +43,7 @@ export function initEditor(container) {
   ov.addEventListener('pointercancel', onUp);
   ov.addEventListener('pointerleave', () => { hover = null; requestRender(); });
   ov.addEventListener('dblclick', onDbl);
+  ov.addEventListener('contextmenu', onContext);
   ov.addEventListener('wheel', onWheel, { passive: false });
   wrap.addEventListener('dragover', (e) => { e.preventDefault(); wrap.classList.add('dropping'); });
   wrap.addEventListener('dragleave', () => wrap.classList.remove('dropping'));
@@ -724,6 +725,9 @@ function onKey(e) {
   if (e.key === 'PageDown') { state.spread = Math.min(spreadCount() - 1, state.spread + 1); state.sel = null; emit('select'); return; }
   if (e.key === 'PageUp') { state.spread = Math.max(0, state.spread - 1); state.sel = null; emit('select'); return; }
   if (ctrl && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAllInSpread(); return; }
+  if (ctrl && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(); return; }
+  if (ctrl && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelected(); return; }
+  if (ctrl && e.key.toLowerCase() === 'x') { e.preventDefault(); copySelected({ cut: true }); return; }
   if (!sel?.el && !multi.length) return;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); return; }
   if (ctrl && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelected(); return; }
@@ -777,6 +781,90 @@ export function duplicateSelected() {
   sel.slot.elements.splice(sel.slot.elements.indexOf(sel.el) + 1, 0, c);
   state.sel = { ...state.sel, elId: c.id };
   commit();
+}
+
+// ───────── copiar / recortar / colar (entre páginas) ─────────
+// Copia os itens selecionados. Sem nenhum item selecionado, copia o aluno (metade) ou a página inteira clicada.
+let clip = null;
+const sizeOf = (page) => (page.layout === 'halves' ? 'half' : 'full');
+const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
+
+export const clipboardInfo = () => (clip ? { count: clip.els.length, whole: clip.whole, size: clip.size } : null);
+
+export function copySelected({ cut = false, whole = false } = {}) {
+  const multi = getMulti();
+  const sel = getSel();
+  let items;
+  if (multi.length && !whole) items = multi;
+  else if (sel?.el && !whole) items = [{ page: sel.page, slot: sel.slot, el: sel.el }];
+  else {
+    if (!sel) { toast('Clique no que você quer copiar (um item, ou uma área vazia para copiar o aluno inteiro).', 'warn'); return false; }
+    items = sel.slot.elements.map((el) => ({ page: sel.page, slot: sel.slot, el }));
+    whole = true;
+    if (!items.length) { toast('Não há nada para copiar aqui.', 'warn'); return false; }
+  }
+  const f0 = items[0];
+  clip = {
+    els: items.map((f) => clone(f.el)),
+    fromPage: f0.page.id, fromSlot: f0.page.slots.indexOf(f0.slot),
+    size: sizeOf(f0.page), whole, template: whole ? f0.slot.template : null, pastes: {},
+  };
+  const what = whole ? (clip.size === 'half' ? 'o aluno inteiro' : 'a página inteira') : plural(items.length, 'item', 'itens');
+  if (cut && !whole) {
+    for (const f of items) f.slot.elements.splice(f.slot.elements.indexOf(f.el), 1);
+    state.sel = { ...state.sel, elId: null };
+    commit();
+    toast(`Recortado: ${what}. Clique onde quer colar e aperte Ctrl+V.`);
+  } else {
+    toast(`Copiado: ${what}. Clique em outra página (ou metade) e aperte Ctrl+V.`);
+    emit('select');
+  }
+  return true;
+}
+
+export function pasteClipboard() {
+  if (!clip) { toast('Nada copiado ainda. Selecione algo e aperte Ctrl+C.', 'warn'); return; }
+  const t = targetSlot();
+  if (!t) return;
+  const H = t.page.layout === 'halves' ? HALF_H : PAGE_H;
+  const same = t.page.id === clip.fromPage && t.slotIdx === clip.fromSlot;
+  // em outra página ou metade: mesma posição; colando de novo no mesmo lugar (ou na origem), desloca um pouco
+  const key = t.page.id + ':' + t.slotIdx;
+  const replace = clip.whole && !same && sizeOf(t.page) === clip.size;
+  const n = (clip.pastes[key] || 0) + (same ? 1 : 0);
+  clip.pastes[key] = (clip.pastes[key] || 0) + 1;
+  const off = replace ? 0 : 4 * n;
+  const els = clip.els.map((e) => {
+    const c = clone(e);
+    c.id = uid(); // mesma semente: a cópia fica idêntica (inclusive a borda de aquarela)
+    c.x = round(c.x + off); c.y = round(c.y + off);
+    if (c.x + c.w > PAGE_W) c.x = round(Math.max(0, PAGE_W - c.w));
+    if (c.y + c.h > H) c.y = round(Math.max(0, H - c.h));
+    return c;
+  });
+  if (replace) {
+    t.slot.elements = els;
+    if (clip.template) t.slot.template = clip.template;
+  } else t.slot.elements.push(...els);
+  commit();
+  if (els.length === 1) select({ pageId: t.page.id, slot: t.slotIdx, elId: els[0].id });
+  else { state.spread = Math.floor(pageIndex(t.page.id) / 2); setMulti(els.map((e) => e.id)); }
+  const where = t.page.layout === 'halves' ? (t.slotIdx ? 'aluno de baixo' : 'aluno de cima') : 'página inteira';
+  toast(replace
+    ? `Colado na página ${t.pageIdx + 1} (${where}), no lugar do que havia ali. Ctrl+Z desfaz.`
+    : `Colado na página ${t.pageIdx + 1} (${where}): ${plural(els.length, 'item', 'itens')}.`);
+}
+
+// botão direito: seleciona o que está embaixo do mouse e abre o menu (montado na interface)
+function onContext(e) {
+  e.preventDefault();
+  const m = toMM(e);
+  const hit = hitTest(m);
+  if (hit) {
+    const inMulti = hit.el && state.multi.includes(hit.el.id);
+    if (!inMulti) select({ pageId: hit.page.id, slot: hit.slotIdx, elId: hit.el ? hit.el.id : null });
+  }
+  emit('contextmenu', { x: e.clientX, y: e.clientY, onItem: !!hit?.el });
 }
 
 // alinha os itens selecionados em relação à caixa do grupo

@@ -7,7 +7,7 @@ import {
 } from './state.js';
 import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
 import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER_FRAMES } from './render.js';
-import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected } from './editor.js';
+import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo } from './editor.js';
 import { FONTS, fontWeights, fontHasItalic, WEIGHT_NAMES } from './fonts.js';
 import { BACKGROUNDS, FRAMES, DECOS, SWATCHES, PAGE_W, PAGE_H, HALF_H, DPI_MIN, DPI_GOOD } from './constants.js';
 import { h, uid, randSeed, debounce, clone } from './util.js';
@@ -49,6 +49,8 @@ export function initUI(root) {
       renderRight();
       const ta = rightEl.querySelector('textarea');
       if (ta) { ta.focus(); ta.select(); }
+    } else if (type === 'contextmenu') {
+      openContextMenu(info);
     } else if (type === 'saved') {
       refreshTop();
     } else if (type === 'view') {
@@ -65,14 +67,22 @@ function menu(anchor, items) {
   const m = h('div', { class: 'menu' });
   for (const it of items) {
     if (it === '-') { m.append(h('div', { class: 'menu-sep' })); continue; }
-    m.append(h('button', { class: 'menu-item', onClick: () => { m.remove(); it.onClick(); } },
-      it.icon ? icon(it.icon) : null, it.preview ? it.preview() : null, h('span', {}, it.label), it.badge ? h('em', { class: 'menu-badge' }, it.badge) : null));
+    m.append(h('button', { class: 'menu-item', disabled: !!it.disabled, onClick: () => { m.remove(); it.onClick(); } },
+      it.icon ? icon(it.icon) : null, it.preview ? it.preview() : null, h('span', {}, it.label),
+      it.badge ? h('em', { class: 'menu-badge' }, it.badge) : null, it.keys ? h('kbd', { class: 'menu-keys' }, it.keys) : null));
   }
-  const r = anchor.getBoundingClientRect();
+  // âncora: um botão, ou um ponto {x, y} (menu do botão direito)
+  const r = anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : { left: anchor.x, bottom: anchor.y - 6 };
   m.style.left = r.left + 'px';
   m.style.top = r.bottom + 6 + 'px';
   m.style.maxHeight = `calc(100vh - ${Math.round(r.bottom) + 18}px)`;
   document.body.append(m);
+  const mr = m.getBoundingClientRect(); // não deixa o menu sair da tela
+  if (mr.right > innerWidth - 8) m.style.left = Math.max(8, innerWidth - mr.width - 8) + 'px';
+  if (!anchor.getBoundingClientRect && mr.bottom > innerHeight - 8) {
+    m.style.top = Math.max(8, innerHeight - mr.height - 8) + 'px';
+    m.style.maxHeight = 'calc(100vh - 16px)';
+  }
   setTimeout(() => document.addEventListener('mousedown', function f(e) {
     if (!m.contains(e.target)) { m.remove(); document.removeEventListener('mousedown', f); }
   }), 0);
@@ -516,8 +526,37 @@ function geometry(el) {
   );
 }
 
+// menu do botão direito na folha
+function openContextMenu({ x, y, onItem }) {
+  const c = clipboardInfo();
+  const s = getSel();
+  const many = state.multi?.length >= 2;
+  const pasteLabel = c ? `Colar aqui (${c.whole ? (c.size === 'half' ? 'aluno inteiro' : 'página inteira') : c.count + (c.count === 1 ? ' item' : ' itens')})` : 'Colar aqui';
+  const items = onItem || many ? [
+    { label: many ? `Copiar ${state.multi.length} itens` : 'Copiar', icon: 'copy', keys: 'Ctrl+C', onClick: () => copySelected() },
+    { label: 'Recortar', icon: 'copy', keys: 'Ctrl+X', onClick: () => copySelected({ cut: true }) },
+    { label: pasteLabel, icon: 'plus', keys: 'Ctrl+V', disabled: !c, onClick: pasteClipboard },
+    { label: 'Duplicar', icon: 'copy', keys: 'Ctrl+D', onClick: duplicateSelected },
+    '-',
+    { label: 'Copiar o aluno inteiro', icon: 'grid', onClick: () => copySelected({ whole: true }) },
+    '-',
+    { label: 'Excluir', icon: 'trash', keys: 'Delete', onClick: deleteSelected },
+  ] : [
+    { label: pasteLabel, icon: 'plus', keys: 'Ctrl+V', disabled: !c, onClick: pasteClipboard },
+    s ? { label: s.page.layout === 'halves' ? 'Copiar este aluno inteiro' : 'Copiar a página inteira', icon: 'grid', keys: 'Ctrl+C', onClick: () => copySelected({ whole: true }) } : null,
+  ].filter(Boolean);
+  menu({ x, y }, items);
+}
+
+function clipActions() {
+  const c = clipboardInfo();
+  return h('div', { class: 'actions' },
+    btn('Copiar', { icon: 'copy', onClick: () => copySelected(), title: 'Ctrl+C · depois clique em outra página e cole' }),
+    btn('Colar', { icon: 'plus', onClick: pasteClipboard, disabled: !c, title: 'Ctrl+V · cola na metade/página selecionada' }));
+}
+
 function elementActions() {
-  return section(null, h('div', { class: 'actions' },
+  return section(null, clipActions(), h('div', { class: 'actions' },
     btn('Duplicar', { icon: 'copy', onClick: duplicateSelected, title: 'Ctrl+D' }),
     btn('Frente', { icon: 'front', onClick: () => reorderSelected('top'), title: 'Trazer para frente' }),
     btn('Trás', { icon: 'back', onClick: () => reorderSelected('bottom'), title: 'Enviar para trás' }),
@@ -714,6 +753,7 @@ function renderMultiProps(body) {
     ) : null,
     section(null,
       h('p', { class: 'hint' }, 'Arraste qualquer item selecionado para mover todos juntos. Setas do teclado também movem o grupo. Shift + clique tira ou põe um item na seleção.'),
+      clipActions(),
       h('div', { class: 'actions' },
         btn('Duplicar', { icon: 'copy', onClick: duplicateSelected, title: 'Ctrl+D' }),
         btn('Excluir', { icon: 'trash', cls: 'danger', onClick: deleteSelected, title: 'Delete' }),
@@ -766,6 +806,15 @@ function renderPageProps(body) {
         btn('Trocar modelo', { icon: 'grid', cls: 'primary', onClick: () => { rightTab = 'templates'; renderRight(); } }),
         btn('Limpar fotos', { icon: 'trash', onClick: () => { s.slot.elements.forEach((e) => { if (e.type === 'photo') e.src = null; }); commit(); } }),
       ),
+      h('div', { class: 'actions' },
+        btn(page.layout === 'halves' ? 'Copiar aluno' : 'Copiar página', {
+          icon: 'copy', title: 'Copia foto, textos e enfeites. Depois clique em outra página e cole (Ctrl+V).',
+          onClick: () => { if (!state.sel) select({ pageId: page.id, slot: s.slotIdx, elId: null }); copySelected({ whole: true }); },
+        }),
+        btn('Colar aqui', {
+          icon: 'plus', disabled: !clipboardInfo(), title: 'Ctrl+V',
+          onClick: () => { if (!state.sel) select({ pageId: page.id, slot: s.slotIdx, elId: null }); pasteClipboard(); },
+        })),
       btn('Salvar como modelo', { icon: 'save', cls: 'block', onClick: openSaveTemplateDialog, title: 'Guarda este layout para usar em outras páginas' }),
       h('div', { class: 'actions' },
         btn('Texto', { icon: 'text', onClick: addText }),
