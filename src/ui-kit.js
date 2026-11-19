@@ -31,6 +31,7 @@ export const ICON = {
   alignL: P('<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>'),
   alignC: P('<path d="M4 6h16M7 10h10M4 14h16M7 18h10"/>'),
   alignR: P('<path d="M4 6h16M10 10h10M4 14h16M10 18h10"/>'),
+  alignJ: P('<path d="M4 6h16M4 10h16M4 14h16M4 18h10"/>'),
   vTop: P('<path d="M4 4h16"/><path d="M8 8h8M10 12h4"/>'),
   vMid: P('<path d="M4 12h16" stroke-dasharray="2 2"/><path d="M8 8h8M8 16h8"/>'),
   vBot: P('<path d="M4 20h16"/><path d="M8 16h8M10 12h4"/>'),

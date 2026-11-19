@@ -2,7 +2,7 @@
 // PDF A5 (uma página por folha, para gráfica) ou PNG da folha aberta. Tudo a 300 DPI.
 import { jsPDF } from 'jspdf';
 import { state, spreadPages, commit } from './state.js';
-import { renderPage, layoutText, photoDpi } from './render.js';
+import { renderPage, layoutText, photoDpi, textObstacles } from './render.js';
 import { PAGE_W, PAGE_H, SHEET_W, SHEET_H, DPI_MIN } from './constants.js';
 import { h, download, sleep } from './util.js';
 import { modal, toast } from './ui-kit.js';
@@ -57,7 +57,7 @@ function collectIssues() {
         if (!el.src) out.empty.push(where);
         else { const d = photoDpi(el); if (d && d < DPI_MIN) out.lowres.push(`${where} — ${d} DPI`); }
       } else if (el.type === 'text') {
-        if (layoutText(ctx, el, 8).overflow) out.overflow.push(where);
+        if (layoutText(ctx, el, 8, textObstacles(p, si, el)).overflow) out.overflow.push(where);
         if (/^Nome do Aluno$|Escreva aqui a mensagem|^Nome do Professor$|^Nome do aluno \d+/m.test(el.text)) out.sample.push(where);
       }
     }

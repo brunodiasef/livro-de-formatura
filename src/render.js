@@ -4,6 +4,7 @@
 import { MM_PER_PT, PAGE_W, PAGE_H, HALF_H, C } from './constants.js';
 import { getImage, placeholderImage } from './images.js';
 import { rng, rad, clamp } from './util.js';
+import { hyphenPoints } from './hyphen.js';
 
 // ───────── utilidades ─────────
 function makeCanvas(w, h) {
@@ -297,6 +298,15 @@ function drawBrush(ctx, el, fitEl, im, o) {
     g.imageSmoothingQuality = 'high';
     g.filter = filterStr(fitEl);
     g.drawImage(im.bmp, r.x, r.y, r.w, r.h);
+    if (soft && fitEl.fit !== 'contain') {
+      // a foto acaba na borda do quadro: estica a última linha de pixels para fora,
+      // assim o degradê some suave em vez de terminar num corte reto
+      const E = md * 0.3, bw = im.bmp.width, bh = im.bmp.height;
+      if (r.y > fy - E) g.drawImage(im.bmp, 0, 0, bw, 1, r.x, fy - E, r.w, r.y - (fy - E));
+      if (r.y + r.h < fy + fh + E) g.drawImage(im.bmp, 0, bh - 1, bw, 1, r.x, r.y + r.h, r.w, fy + fh + E - (r.y + r.h));
+      if (r.x > fx - E) g.drawImage(im.bmp, 0, 0, 1, bh, fx - E, r.y, r.x - (fx - E), r.h);
+      if (r.x + r.w < fx + fw + E) g.drawImage(im.bmp, bw - 1, 0, 1, bh, r.x + r.w, r.y, fx + fw + E - (r.x + r.w), r.h);
+    }
     g.filter = 'none';
     const seed = el.seed || 7;
     // difusão (0–100, padrão 50): largura da faixa em degradê onde a foto some
@@ -382,33 +392,174 @@ function drawBrush(ctx, el, fitEl, im, o) {
 // ───────── texto ─────────
 const fontStr = (el, px) => `${el.italic ? 'italic ' : ''}${el.weight || 400} ${px}px "${el.font}"`;
 
-function wrap(ctx, text, maxW) {
-  const out = [];
-  for (const para of text.split('\n')) {
-    const words = para.split(/ +/);
-    let line = '';
-    for (const w of words) {
-      const t = line ? line + ' ' + w : w;
-      if (!line || ctx.measureText(t).width <= maxW) line = t;
-      else { out.push(line); line = w; }
+// ───── contorno de fotos: o texto desvia do formato real da foto ─────
+// contorno da foto (pontos em mm, no espaço do aluno), seguindo a moldura escolhida
+function photoOutline(p) {
+  const hw = p.w / 2, hh = p.h / 2, md = Math.min(p.w, p.h);
+  let pts;
+  if (p.frame === 'brush') pts = blobPath(0, 0, hw * 1.035, hh * 1.035, p.seed || 7, 0.075, 3.2, 160).pts;
+  else if (p.frame === 'soft') {
+    // mesma conta da moldura esfumada: até onde a foto ainda aparece
+    const fd = clamp(p.feather ?? 50, 0, 100) / 50;
+    const s0 = md * 0.05, sMax = md * 0.11;
+    const sg = fd <= 1 ? s0 * fd : s0 + (fd - 1) * (sMax - s0);
+    const t = Math.max(0, fd - 1);
+    const r = (half) => half * 0.95 - t * (half * 0.95 - (half - 2.2 * sMax)) + sg * 0.6;
+    pts = blobPath(0, 0, Math.min(hw, r(hw)), Math.min(hh, r(hh)), p.seed || 7, 0.05, 2.6, 160).pts;
+  } else if (p.frame === 'circle') {
+    pts = Array.from({ length: 72 }, (_, i) => [Math.cos((i / 72) * Math.PI * 2) * hw, Math.sin((i / 72) * Math.PI * 2) * hh]);
+  } else if (p.frame === 'heart') {
+    pts = [];
+    for (let i = 0; i < 96; i++) {
+      const a = (i / 96) * Math.PI * 2;
+      pts.push([16 * Math.sin(a) ** 3, -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a))]);
     }
-    out.push(line);
-  }
-  return out.map((t) => ({ t, w: ctx.measureText(t).width }));
+    const ys = pts.map((q) => q[1]), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    pts = pts.map(([x, y]) => [(x / 16) * hw, -hh + ((y - y0) / (y1 - y0)) * p.h]);
+  } else if (p.frame === 'arch') {
+    const r = Math.min(hw, p.h);
+    pts = [[-hw, hh]];
+    for (let i = 0; i <= 24; i++) { const a = Math.PI + (i / 24) * Math.PI; pts.push([Math.cos(a) * hw, -hh + r + Math.sin(a) * r]); }
+    pts.push([hw, hh]);
+  } else pts = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]];
+  const a = rad(p.rotation || 0), c = Math.cos(a), sn = Math.sin(a);
+  const cx = p.x + hw, cy = p.y + hh;
+  return pts.map(([x, y]) => [cx + x * c - y * sn, cy + x * sn + y * c]);
 }
 
-export function layoutText(ctx, el, s) {
+// fotos da página que o texto deve contornar (em mm, relativos ao canto da caixa de texto)
+export function textObstacles(page, slotIdx, el) {
+  if (!page || !el.wrapPhotos || el.rotation) return null;
+  const out = [];
+  page.slots.forEach((slot, si) => {
+    const dy = slotOffset(page, si) - slotOffset(page, slotIdx);
+    for (const p of slot.elements) {
+      if (p.type !== 'photo' || p === el) continue;
+      const pts = photoOutline(p).map(([x, y]) => [x - el.x, y + dy - el.y]);
+      const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+      const box = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+      if (box.x1 < -8 || box.x0 > el.w + 8 || box.y1 < -8 || box.y0 > el.h + 8) continue;
+      out.push({ pts, ...box });
+    }
+  });
+  return out;
+}
+
+// largura ocupada pelo contorno numa faixa horizontal (y0..y1)
+function rowExtent(P, y0, y1) {
+  let lo = Infinity, hi = -Infinity;
+  const pts = P.pts, n = pts.length;
+  const ys = [y0, y0 + (y1 - y0) * 0.25, (y0 + y1) / 2, y0 + (y1 - y0) * 0.75, y1];
+  for (const y of ys) {
+    for (let i = 0; i < n; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % n];
+      if ((ay <= y && by >= y) || (by <= y && ay >= y)) {
+        const x = ay === by ? ax : ax + ((y - ay) / (by - ay)) * (bx - ax);
+        if (x < lo) lo = x; if (x > hi) hi = x;
+      }
+    }
+  }
+  for (const [x, y] of pts) if (y >= y0 && y <= y1) { if (x < lo) lo = x; if (x > hi) hi = x; }
+  return lo <= hi ? [lo, hi] : null;
+}
+
+// trecho livre da linha (em mm) que sobra ao lado das fotos; null = a linha toda está tomada
+function freeInterval(obs, top, bot, W, gap, minW) {
+  const blocked = [];
+  for (const P of obs) {
+    if (P.y1 < top - gap || P.y0 > bot + gap) continue;
+    const r = rowExtent(P, top - gap, bot + gap);
+    if (r) blocked.push([r[0] - gap, r[1] + gap]);
+  }
+  if (!blocked.length) return [0, W];
+  blocked.sort((a, b) => a[0] - b[0]);
+  const free = [];
+  let x = 0;
+  for (const [l, r] of blocked) { if (l > x) free.push([x, Math.min(l, W)]); x = Math.max(x, r); }
+  if (x < W) free.push([x, W]);
+  let best = null;
+  for (const f of free) if (f[1] - f[0] > 0 && (!best || f[1] - f[0] > best[1] - best[0])) best = f;
+  return best && best[1] - best[0] >= minW ? best : null;
+}
+
+// tenta quebrar a palavra com hífen para caber no que sobra da linha
+function splitToFit(ctx, line, word, W) {
+  const pts = hyphenPoints(word);
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    const head = word.slice(0, p) + (word[p - 1] === '-' ? '' : '-');
+    const t = line ? line + ' ' + head : head;
+    const tw = ctx.measureText(t).width;
+    if (tw <= W) return { line: t, w: tw, tail: word.slice(p) };
+  }
+  return null;
+}
+
+// distribui as palavras nas linhas; cada linha tem seu trecho livre [a, b] (em px)
+function flow(ctx, text, el, s, maxW, lh, obs, yOff) {
+  const lines = [];
+  const hy = !!el.hyphenate;
+  const gap = el.wrapGap ?? 2.5;
+  const minW = Math.max(6, (lh / s) * 2.6);
+  let i = 0;
+  const interval = () => {
+    if (!obs) return [0, maxW];
+    const top = (yOff + i * lh) / s, bot = top + lh / s;
+    const iv = freeInterval(obs, top, bot, el.w, gap, minW);
+    return iv && [iv[0] * s, iv[1] * s];
+  };
+  for (const para of text.split('\n')) {
+    const ws = para.split(/ +/);
+    let k = 0;
+    do {
+      if (lines.length > 600) return lines;
+      const iv = interval();
+      if (!iv) { lines.push({ t: '', w: 0, a: 0, b: maxW, skip: true }); i++; continue; }
+      const [a, b] = iv, W = b - a;
+      let line = '', lw = 0, hyph = false;
+      while (k < ws.length) {
+        const t = line ? line + ' ' + ws[k] : ws[k];
+        const tw = ctx.measureText(t).width;
+        if (tw <= W) { line = t; lw = tw; k++; continue; }
+        if (hy && ws[k]) {
+          const sp = splitToFit(ctx, line, ws[k], W);
+          if (sp) { line = sp.line; lw = sp.w; ws[k] = sp.tail; hyph = true; }
+        }
+        if (!line) {
+          // nem uma palavra coube: ao lado da foto, pula a linha; sem foto, põe a palavra assim mesmo
+          if (obs && W < maxW - 1) break;
+          line = ws[k]; lw = tw; k++;
+        }
+        break;
+      }
+      if (!line && k < ws.length) { lines.push({ t: '', w: 0, a, b, skip: true }); i++; continue; }
+      lines.push({ t: line, w: lw, a, b, last: k >= ws.length && !hyph });
+      i++;
+    } while (k < ws.length);
+  }
+  return lines;
+}
+
+export function layoutText(ctx, el, s, obstacles = null) {
   const text = el.uppercase ? (el.text || '').toUpperCase() : el.text || '';
   const maxW = el.w * s, maxH = el.h * s;
+  const obs = obstacles && obstacles.length ? obstacles : null;
   let size = el.size;
   for (let guard = 0; guard < 200; guard++) {
     const px = size * MM_PER_PT * s;
     ctx.font = fontStr(el, px);
     ctx.letterSpacing = `${((el.tracking || 0) / 1000) * px}px`;
-    const lines = wrap(ctx, text, maxW);
     const lh = px * (el.lineHeight || 1.3);
-    const overflow = lines.length * lh > maxH + lh * 0.2 || lines.some((l) => l.w > maxW + 1);
-    if (!overflow || !el.autoFit || size <= 5) return { lines, px, lh, size, overflow };
+    let yOff = 0;
+    let lines = flow(ctx, text, el, s, maxW, lh, obs, 0);
+    if (obs && el.valign && el.valign !== 'top') {
+      // com contorno, a posição vertical muda as linhas: refaz já na posição final
+      const total = lines.length * lh;
+      yOff = el.valign === 'middle' ? (maxH - total) / 2 : maxH - total;
+      lines = flow(ctx, text, el, s, maxW, lh, obs, yOff);
+    }
+    const overflow = yOff + lines.length * lh > maxH + lh * 0.2 || lines.some((l) => l.w > l.b - l.a + 1);
+    if (!overflow || !el.autoFit || size <= 5) return { lines, px, lh, size, overflow, yOff: obs ? yOff : null };
     size = Math.max(5, size - Math.max(0.2, size * 0.03));
   }
 }
@@ -417,16 +568,27 @@ function drawText(ctx, el, o) {
   const s = o.s;
   ctx.save();
   ctx.scale(1 / s, 1 / s);
-  const L = layoutText(ctx, el, s);
+  const L = layoutText(ctx, el, s, o.obstacles);
   const x0 = (-el.w / 2) * s, y0 = (-el.h / 2) * s, W = el.w * s, H = el.h * s;
   const total = L.lines.length * L.lh;
-  let y = el.valign === 'middle' ? y0 + (H - total) / 2 : el.valign === 'bottom' ? y0 + H - total : y0;
+  let y = L.yOff != null ? y0 + L.yOff : el.valign === 'middle' ? y0 + (H - total) / 2 : el.valign === 'bottom' ? y0 + H - total : y0;
   ctx.fillStyle = el.color || C.text;
   ctx.textBaseline = 'middle';
-  ctx.textAlign = el.align === 'center' ? 'center' : el.align === 'right' ? 'right' : 'left';
-  const x = el.align === 'center' ? x0 + W / 2 : el.align === 'right' ? x0 + W : x0;
   for (const ln of L.lines) {
-    ctx.fillText(ln.t, x, y + L.lh / 2);
+    const a = ln.a ?? 0, b = ln.b ?? W;
+    const words = el.align === 'justify' && !ln.last && ln.t.includes(' ') ? ln.t.split(' ') : null;
+    if (words) {
+      // justificado: as palavras ocupam a linha toda (menos a última do parágrafo)
+      const ww = words.map((w) => ctx.measureText(w).width);
+      const sp = (b - a - ww.reduce((p, q) => p + q, 0)) / (words.length - 1);
+      ctx.textAlign = 'left';
+      let xx = x0 + a;
+      words.forEach((w, j) => { ctx.fillText(w, xx, y + L.lh / 2); xx += ww[j] + sp; });
+    } else if (ln.t) {
+      ctx.textAlign = el.align === 'center' ? 'center' : el.align === 'right' ? 'right' : 'left';
+      const x = el.align === 'center' ? x0 + (a + b) / 2 : el.align === 'right' ? x0 + b : x0 + a;
+      ctx.fillText(ln.t, x, y + L.lh / 2);
+    }
     y += L.lh;
   }
   ctx.restore();
@@ -942,7 +1104,7 @@ export function renderPage(ctx, page, side, o) {
     ctx.translate(0, slotOffset(page, i));
     for (const el of slot.elements) {
       if (o.skipId && el.id === o.skipId) continue;
-      drawElement(ctx, el, o);
+      drawElement(ctx, el, el.type === 'text' && el.wrapPhotos ? { ...o, obstacles: textObstacles(page, i, el) } : o);
     }
     ctx.restore();
   });

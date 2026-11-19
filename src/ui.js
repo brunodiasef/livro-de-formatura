@@ -6,7 +6,7 @@ import {
   saveSlotAsTemplate, deleteCustomTemplate, renameCustomTemplate, getMulti,
 } from './state.js';
 import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
-import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER_FRAMES } from './render.js';
+import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER_FRAMES, textObstacles } from './render.js';
 import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo, groupSelected, ungroupSelected, isOneGroup, lockSelected, unlockAllOnPage } from './editor.js';
 import { FONTS, fontWeights, fontHasItalic, WEIGHT_NAMES } from './fonts.js';
 import { BACKGROUNDS, FRAMES, DECOS, SWATCHES, PAGE_W, PAGE_H, HALF_H, DPI_MIN, DPI_GOOD } from './constants.js';
@@ -642,7 +642,7 @@ function renderTextProps(body, s) {
   const fitInfo = h('div', { class: 'hint' });
   function updateFitInfo() {
     measureCtx ||= document.createElement('canvas').getContext('2d');
-    const L = layoutText(measureCtx, el, 8);
+    const L = layoutText(measureCtx, el, 8, textObstacles(s.page, s.slotIdx, el));
     fitInfo.className = 'hint';
     if (L.overflow) { fitInfo.textContent = '⚠ O texto não cabe na caixa. Aumente a caixa, diminua a fonte ou ative o ajuste automático.'; fitInfo.classList.add('warn'); }
     else if (el.autoFit && L.size < el.size - 0.05) fitInfo.textContent = `Fonte reduzida automaticamente para ${fmt(L.size)} pt para caber na caixa.`;
@@ -666,11 +666,35 @@ function renderTextProps(body, s) {
     section('Cor', colorInput(el, 'color')),
     section('Alinhamento',
       row(
-        segInput(el, 'align', [['left', 'alignL', 'Esquerda'], ['center', 'alignC', 'Centro'], ['right', 'alignR', 'Direita']]),
+        segInput(el, 'align', [['left', 'alignL', 'Esquerda'], ['center', 'alignC', 'Centro'], ['right', 'alignR', 'Direita'], ['justify', 'alignJ', 'Justificado']]),
         segInput(el, 'valign', [['top', 'vTop', 'Topo'], ['middle', 'vMid', 'Meio'], ['bottom', 'vBot', 'Base']]),
       ),
       field('Entre linhas', rangeInput(el, 'lineHeight', { min: 0.8, max: 2.5, step: 0.05, show: (v) => fmt(v, 2) })),
       field('Entre letras', rangeInput(el, 'tracking', { min: -50, max: 600, step: 10, show: (v) => v })),
+    ),
+    section('Contornar fotos e separar sílabas',
+      checkInput(el, 'wrapPhotos', 'Contornar as fotos (o texto desvia do formato da foto)', () => {
+        if (el.wrapPhotos && el.hyphenate === undefined) el.hyphenate = true;
+        setTimeout(renderRight, 0);
+      }),
+      el.wrapPhotos ? field('Distância da foto', rangeInput({ get wrapGap() { return el.wrapGap ?? 2.5; }, set wrapGap(v) { el.wrapGap = v; } }, 'wrapGap',
+        { min: 0, max: 10, step: 0.5, show: (v) => fmt(v) + ' mm' })) : null,
+      el.wrapPhotos && !(textObstacles(s.page, s.slotIdx, el) || []).length
+        ? h('p', { class: 'hint warn' }, 'Nenhuma foto encosta nesta caixa. Estique a caixa de texto por cima da foto: o texto contorna sozinho.')
+        : el.wrapPhotos ? h('p', { class: 'hint' }, 'Dica: estique a caixa por cima da foto. Justificado fica mais elegante no contorno.') : null,
+      checkInput(el, 'hyphenate', 'Separar sílabas no fim da linha (hífen automático)'),
+      /\n/.test(el.text) ? btn('Juntar as linhas que quebrei à mão', {
+        icon: 'text', cls: 'block',
+        title: 'Tira as quebras de linha e os hífens que você pôs à mão, para o app quebrar sozinho (parágrafos com linha em branco são mantidos)',
+        onClick: () => {
+          el.text = el.text
+            .replace(/-[ \t]*\n[ \t]*(?=\p{Ll})/gu, '') // "desa-\nfios" → "desafios"
+            .replace(/([^\n])[ \t]*\n[ \t]*(?!\n)(?=\S)/g, '$1 ') // quebra simples vira espaço
+            .replace(/ {2,}/g, ' ');
+          commit();
+          setTimeout(renderRight, 0);
+        },
+      }) : null,
     ),
     geometry(el),
     elementActions(),
