@@ -3,7 +3,7 @@
 //  - página inteira:        148,5 x 210 mm
 // Área segura usada nos modelos: ~12 mm das laterais e ~8 mm de cima/baixo de cada metade.
 import { C } from './constants.js';
-import { uid, randSeed, clone } from './util.js';
+import { uid, randSeed, clone, remapGroups } from './util.js';
 
 export const NAME = { font: 'Cormorant Garamond', weight: 600, size: 19, color: C.ink, lineHeight: 1.1 };
 export const BODY = { font: 'Quicksand', weight: 400, size: 9.5, color: C.text, lineHeight: 1.6 };
@@ -293,7 +293,7 @@ export function instantiate(id) {
   const t = getTemplate(id);
   return {
     template: t.id,
-    elements: t.build().map((e) => ({ ...clone(e), id: uid(), seed: randSeed() })),
+    elements: remapGroups(t.build().map((e) => ({ ...clone(e), id: uid(), seed: randSeed() }))),
   };
 }
 

@@ -6,7 +6,7 @@ import {
 import { renderPage, slotOffset, photoDpi, imageRect } from './render.js';
 import { getImage, importFile } from './images.js';
 import { PAGE_W, PAGE_H, HALF_H, SAFE, SHEET_W, SHEET_H, DPI_MIN, DPI_GOOD } from './constants.js';
-import { h, clone, rad, clamp, uid, randSeed } from './util.js';
+import { h, clone, rad, clamp, uid, randSeed, remapGroups } from './util.js';
 import { toast } from './ui-kit.js';
 
 let cv, ov, wrap, stage;
@@ -214,8 +214,17 @@ function renderOverlay() {
   }
 
   if (hover && (!sel?.el || hover.el.id !== sel.el.id)) {
-    const { ox, oy } = elWorld(hover.page, hover.slotIdx, hover.el);
-    drawBox(g, hover.el, ox, oy, 'rgba(46,110,230,0.5)');
+    const mates = hover.el.group && !state.multi.includes(hover.el.id) ? groupMates(hover.el).map(findWithSlot).filter((f) => f && spreadPages().includes(f.page)) : [];
+    if (mates.length >= 2) { // passando o mouse num grupo: mostra a caixa do grupo todo
+      const b = groupBounds(mates);
+      g.save();
+      g.strokeStyle = 'rgba(46,110,230,0.55)'; g.lineWidth = 1.5;
+      g.strokeRect(Z(b.x0) - 4, Z(b.y0) - 4, Z(b.x1 - b.x0) + 8, Z(b.y1 - b.y0) + 8);
+      g.restore();
+    } else {
+      const { ox, oy } = elWorld(hover.page, hover.slotIdx, hover.el);
+      drawBox(g, hover.el, ox, oy, 'rgba(46,110,230,0.5)');
+    }
   }
 
   if (sel?.el && spreadPages().includes(sel.page)) {
@@ -257,16 +266,19 @@ function renderOverlay() {
   // seleção múltipla: caixa de cada elemento + caixa do grupo
   const multi = getMulti().filter((f) => spreadPages().includes(f.page));
   if (multi.length) {
+    const grouped = isOneGroup(multi.map((f) => f.el));
     for (const f of multi) {
       const { ox, oy } = elWorld(f.page, f.slotIdx, f.el);
-      drawBox(g, f.el, ox, oy, 'rgba(46,110,230,1)');
+      drawBox(g, f.el, ox, oy, grouped ? 'rgba(46,110,230,0.35)' : 'rgba(46,110,230,1)', grouped ? [3, 3] : null);
     }
     const b = groupBounds(multi);
     g.save();
-    g.strokeStyle = 'rgba(46,110,230,0.8)'; g.lineWidth = 1; g.setLineDash([5, 4]);
+    g.strokeStyle = 'rgba(46,110,230,0.9)';
+    g.lineWidth = grouped ? 1.5 : 1;
+    if (!grouped) g.setLineDash([5, 4]);
     g.strokeRect(Z(b.x0) - 4, Z(b.y0) - 4, Z(b.x1 - b.x0) + 8, Z(b.y1 - b.y0) + 8);
     g.setLineDash([]);
-    const label = `${multi.length} selecionados`;
+    const label = grouped ? `Grupo · ${multi.length} itens` : `${multi.length} selecionados`;
     g.font = '600 11px system-ui';
     const tw = g.measureText(label).width + 14;
     g.fillStyle = 'rgba(46,110,230,0.95)';
@@ -343,6 +355,49 @@ function elementsInRect(r) {
   });
   return out;
 }
+// ───────── grupos ─────────
+// Itens agrupados guardam o mesmo "group". Um clique seleciona o grupo todo;
+// duplo clique entra no grupo e seleciona só aquele item.
+export function groupMates(el) {
+  if (!el?.group) return el ? [el.id] : [];
+  const ids = [];
+  for (const p of state.book.pages) for (const s of p.slots) for (const e of s.elements) if (e.group === el.group) ids.push(e.id);
+  return ids;
+}
+function withGroups(ids) {
+  const out = new Set();
+  for (const id of ids) { const f = findElement(id); if (f) for (const g of groupMates(f.el)) out.add(g); }
+  return [...out];
+}
+function findWithSlot(id) {
+  const f = findElement(id);
+  return f && { ...f, slotIdx: f.page.slots.indexOf(f.slot) };
+}
+export const isOneGroup = (els) => els.length >= 2 && !!els[0].group && els.every((e) => e.group === els[0].group);
+
+export function groupSelected() {
+  const multi = getMulti();
+  if (multi.length < 2) { toast('Selecione 2 ou mais itens para agrupar (arraste um retângulo ou use Shift + clique).', 'warn'); return; }
+  if (new Set(multi.map((f) => f.page.id)).size > 1) { toast('Só dá para agrupar itens da mesma página.', 'warn'); return; }
+  const g = uid();
+  for (const f of multi) f.el.group = g;
+  commit();
+  setMulti(multi.map((f) => f.el.id));
+  toast(`Agrupado: ${multi.length} itens. Agora eles se movem juntos. Duplo clique edita um item só.`);
+}
+
+export function ungroupSelected() {
+  const multi = getMulti();
+  const els = multi.length ? multi.map((f) => f.el) : [getSel()?.el].filter(Boolean);
+  const ids = withGroups(els.map((e) => e.id));
+  const all = ids.map(findElement).filter(Boolean).map((f) => f.el).filter((e) => e.group);
+  if (!all.length) { toast('Os itens selecionados não estão agrupados.', 'warn'); return; }
+  for (const e of all) delete e.group;
+  commit();
+  setMulti(all.map((e) => e.id));
+  toast('Desagrupado. Cada item agora se move sozinho.');
+}
+
 // ids selecionados hoje (um ou vários)
 function currentIds() {
   if (state.multi?.length >= 2) return [...state.multi];
@@ -430,6 +485,7 @@ function makeDragCopies() {
     ids.push(c.id);
     it.el = c;
   }
+  remapGroups(drag.items.map((it) => it.el)); // a cópia de um grupo vira um grupo novo
   drag.copied = true;
   setMulti(ids);
 }
@@ -456,7 +512,10 @@ function onDown(e) {
   const copy = (e.ctrlKey || e.metaKey) && !!hit?.el;
   if (copy) {
     const inMulti = multiNow && state.multi.includes(hit.el.id);
-    if (!inMulti && (!sel?.el || sel.el.id !== hit.el.id)) select({ pageId: hit.page.id, slot: hit.slotIdx, elId: hit.el.id });
+    if (!inMulti && (!sel?.el || sel.el.id !== hit.el.id)) {
+      if (hit.el.group && groupMates(hit.el).length >= 2) setMulti(groupMates(hit.el));
+      else select({ pageId: hit.page.id, slot: hit.slotIdx, elId: hit.el.id });
+    }
     startGroupMove(m);
     if (drag) drag.copy = true;
     return;
@@ -464,9 +523,10 @@ function onDown(e) {
 
   // Shift + clique: adiciona ou tira o item da seleção
   if (e.shiftKey && hit?.el) {
-    const ids = currentIds();
+    let ids = currentIds();
     const i = ids.indexOf(hit.el.id);
-    if (i >= 0) ids.splice(i, 1); else ids.push(hit.el.id);
+    const mates = groupMates(hit.el); // num grupo, põe ou tira o grupo inteiro
+    if (i >= 0) ids = ids.filter((id) => !mates.includes(id)); else ids.push(...mates);
     if (ids.length) setMulti(ids);
     else select({ pageId: hit.page.id, slot: hit.slotIdx, elId: null });
     if (i < 0) startGroupMove(m);
@@ -492,6 +552,11 @@ function onDown(e) {
     drag = { kind: 'pan', start: m, el0: clone(hit.el), page: hit.page, slotIdx: hit.slotIdx };
     return;
   }
+  // item de um grupo: seleciona e arrasta o grupo todo (a não ser que já tenha entrado no grupo com duplo clique)
+  if (hit.el.group && sel?.el?.id !== hit.el.id) {
+    const mates = groupMates(hit.el);
+    if (mates.length >= 2) { setMulti(mates); startGroupMove(m); return; }
+  }
   if (hit.el) {
     if (!sel?.el || sel.el.id !== hit.el.id) select({ pageId: hit.page.id, slot: hit.slotIdx, elId: hit.el.id });
     drag = { kind: 'move', start: m, el0: clone(hit.el), page: hit.page, slotIdx: hit.slotIdx };
@@ -515,7 +580,7 @@ function onMove(e) {
     drag.cur = m;
     if (!drag.moved && Math.hypot(m.x - drag.start.x, m.y - drag.start.y) * z < 4) return;
     drag.moved = true;
-    drag.preview = [...new Set([...drag.base, ...elementsInRect(marqueeRect(drag))])];
+    drag.preview = [...new Set([...drag.base, ...withGroups(elementsInRect(marqueeRect(drag)))])];
     requestRender();
     return;
   }
@@ -728,6 +793,7 @@ function onKey(e) {
   if (ctrl && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(); return; }
   if (ctrl && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelected(); return; }
   if (ctrl && e.key.toLowerCase() === 'x') { e.preventDefault(); copySelected({ cut: true }); return; }
+  if (ctrl && e.key.toLowerCase() === 'g') { e.preventDefault(); e.shiftKey ? ungroupSelected() : groupSelected(); return; }
   if (!sel?.el && !multi.length) return;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); return; }
   if (ctrl && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelected(); return; }
@@ -765,12 +831,13 @@ export function deleteSelected() {
 export function duplicateSelected() {
   const multi = getMulti();
   if (multi.length) {
-    const ids = [];
+    const ids = [], copies = [];
     for (const f of multi) {
       const c = { ...clone(f.el), id: uid(), seed: randSeed(), x: f.el.x + 4, y: f.el.y + 4 };
       f.slot.elements.splice(f.slot.elements.indexOf(f.el) + 1, 0, c);
-      ids.push(c.id);
+      ids.push(c.id); copies.push(c);
     }
+    remapGroups(copies);
     commit();
     setMulti(ids);
     return;
@@ -778,6 +845,7 @@ export function duplicateSelected() {
   const sel = getSel();
   if (!sel?.el) return;
   const c = { ...clone(sel.el), id: uid(), seed: randSeed(), x: sel.el.x + 4, y: sel.el.y + 4 };
+  delete c.group; // duplicar um item de dentro do grupo cria um item solto
   sel.slot.elements.splice(sel.slot.elements.indexOf(sel.el) + 1, 0, c);
   state.sel = { ...state.sel, elId: c.id };
   commit();
@@ -842,6 +910,8 @@ export function pasteClipboard() {
     if (c.y + c.h > H) c.y = round(Math.max(0, H - c.h));
     return c;
   });
+  remapGroups(els);
+  if (els.length === 1) delete els[0].group;
   if (replace) {
     t.slot.elements = els;
     if (clip.template) t.slot.template = clip.template;
@@ -862,7 +932,9 @@ function onContext(e) {
   const hit = hitTest(m);
   if (hit) {
     const inMulti = hit.el && state.multi.includes(hit.el.id);
-    if (!inMulti) select({ pageId: hit.page.id, slot: hit.slotIdx, elId: hit.el ? hit.el.id : null });
+    const entered = hit.el && getSel()?.el?.id === hit.el.id;
+    if (!inMulti && !entered && hit.el?.group && groupMates(hit.el).length >= 2) setMulti(groupMates(hit.el));
+    else if (!inMulti) select({ pageId: hit.page.id, slot: hit.slotIdx, elId: hit.el ? hit.el.id : null });
   }
   emit('contextmenu', { x: e.clientX, y: e.clientY, onItem: !!hit?.el });
 }

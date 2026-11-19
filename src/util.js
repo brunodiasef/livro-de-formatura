@@ -21,6 +21,13 @@ export function rng(seed) {
 
 export const randSeed = () => Math.floor(Math.random() * 1e9);
 
+// cópias ganham grupos novos: cada grupo copiado vira um grupo próprio, sem ligar ao original
+export function remapGroups(els) {
+  const map = new Map();
+  for (const e of els) if (e.group) { if (!map.has(e.group)) map.set(e.group, uid()); e.group = map.get(e.group); }
+  return els;
+}
+
 export function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {

@@ -7,7 +7,7 @@ import {
 } from './state.js';
 import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
 import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER_FRAMES } from './render.js';
-import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo } from './editor.js';
+import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo, groupSelected, ungroupSelected, isOneGroup } from './editor.js';
 import { FONTS, fontWeights, fontHasItalic, WEIGHT_NAMES } from './fonts.js';
 import { BACKGROUNDS, FRAMES, DECOS, SWATCHES, PAGE_W, PAGE_H, HALF_H, DPI_MIN, DPI_GOOD } from './constants.js';
 import { h, uid, randSeed, debounce, clone } from './util.js';
@@ -538,14 +538,24 @@ function openContextMenu({ x, y, onItem }) {
     { label: pasteLabel, icon: 'plus', keys: 'Ctrl+V', disabled: !c, onClick: pasteClipboard },
     { label: 'Duplicar', icon: 'copy', keys: 'Ctrl+D', onClick: duplicateSelected },
     '-',
+    many && !isOneGroup(getMulti().map((f) => f.el)) ? { label: 'Agrupar', icon: 'grid', keys: 'Ctrl+G', onClick: groupSelected } : null,
+    (many ? getMulti().map((f) => f.el) : [s?.el]).some((e) => e?.group) ? { label: 'Desagrupar', icon: 'grid', keys: 'Ctrl+Shift+G', onClick: ungroupSelected } : null,
     { label: 'Copiar o aluno inteiro', icon: 'grid', onClick: () => copySelected({ whole: true }) },
     '-',
     { label: 'Excluir', icon: 'trash', keys: 'Delete', onClick: deleteSelected },
-  ] : [
+  ].filter(Boolean) : [
     { label: pasteLabel, icon: 'plus', keys: 'Ctrl+V', disabled: !c, onClick: pasteClipboard },
     s ? { label: s.page.layout === 'halves' ? 'Copiar este aluno inteiro' : 'Copiar a página inteira', icon: 'grid', keys: 'Ctrl+C', onClick: () => copySelected({ whole: true }) } : null,
   ].filter(Boolean);
   menu({ x, y }, items);
+}
+
+function groupActions(els) {
+  const one = isOneGroup(els);
+  const anyGrouped = els.some((e) => e.group);
+  return h('div', { class: 'actions' },
+    one ? null : btn('Agrupar', { icon: 'grid', cls: 'primary', onClick: groupSelected, title: 'Ctrl+G' }),
+    anyGrouped ? btn('Desagrupar', { icon: 'grid', onClick: ungroupSelected, title: 'Ctrl+Shift+G' }) : null);
 }
 
 function clipActions() {
@@ -556,7 +566,11 @@ function clipActions() {
 }
 
 function elementActions() {
-  return section(null, clipActions(), h('div', { class: 'actions' },
+  const el = getSel()?.el;
+  const inGroup = el?.group ? h('div', { class: 'in-group' },
+    h('p', { class: 'hint' }, 'Este item faz parte de um grupo e você está editando só ele. Para pegar o grupo todo, clique fora e depois em qualquer item do grupo.'),
+    h('div', { class: 'actions' }, btn('Desagrupar', { icon: 'grid', onClick: ungroupSelected, title: 'Ctrl+Shift+G' }))) : null;
+  return section(null, inGroup, clipActions(), h('div', { class: 'actions' },
     btn('Duplicar', { icon: 'copy', onClick: duplicateSelected, title: 'Ctrl+D' }),
     btn('Frente', { icon: 'front', onClick: () => reorderSelected('top'), title: 'Trazer para frente' }),
     btn('Trás', { icon: 'back', onClick: () => reorderSelected('bottom'), title: 'Enviar para trás' }),
@@ -725,7 +739,11 @@ function renderMultiProps(body) {
   const bump = (d) => { for (const el of texts) el.size = Math.max(4, Math.round((el.size + d) * 10) / 10); commit(); };
 
   appendAll(body,
-    header(`${multi.length} itens selecionados`, parts.join(' · ')),
+    header(isOneGroup(multi.map((f) => f.el)) ? `Grupo · ${multi.length} itens` : `${multi.length} itens selecionados`, parts.join(' · ')),
+    section('Agrupar', groupActions(multi.map((f) => f.el)),
+      h('p', { class: 'hint' }, isOneGroup(multi.map((f) => f.el))
+        ? 'Os itens se movem juntos. Para mexer num item só, dê duplo clique nele.'
+        : 'Agrupe para mover, copiar e alinhar estes itens sempre juntos (Ctrl+G).')),
     section('Alinhar entre si',
       h('div', { class: 'align-row' },
         alignBtn('left', 'alignL', 'Alinhar à esquerda'),

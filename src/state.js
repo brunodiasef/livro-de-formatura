@@ -1,7 +1,7 @@
 // Estado do livro, histórico (desfazer/refazer) e salvamento automático.
 import { instantiate, switchTemplate, getTemplate, setCustomSource, TXT_NAME, TXT_BODY } from './templates.js';
 import { dbGet, dbPut } from './db.js';
-import { clone, uid, debounce, randSeed } from './util.js';
+import { clone, uid, debounce, randSeed, remapGroups } from './util.js';
 
 export const state = {
   book: null,
@@ -184,6 +184,7 @@ function clonePage(page) {
   const p = clone(page);
   p.id = uid();
   for (const s of p.slots) for (const e of s.elements) { e.id = uid(); e.seed = randSeed(); }
+  remapGroups(p.slots.flatMap((s) => s.elements));
   return p;
 }
 

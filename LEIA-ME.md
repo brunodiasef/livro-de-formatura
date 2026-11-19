@@ -78,6 +78,8 @@ Ao trocar de modelo, a foto e os textos que você já inseriu continuam no lugar
 | Copiar / Recortar / Colar (entre páginas) | Ctrl+C / Ctrl+X / Ctrl+V |
 | Copiar o aluno inteiro (foto, textos e enfeites) | Clique numa área vazia do aluno e Ctrl+C |
 | Menu com copiar, colar, duplicar e excluir | Botão direito do mouse |
+| Agrupar / Desagrupar os itens selecionados | Ctrl+G / Ctrl+Shift+G |
+| Editar um item só, dentro de um grupo | Duplo clique nele |
 | Duplicar elemento | Ctrl+D |
 | Excluir elemento | Delete |
 | Mover elemento | Setas (0,5 mm) · Shift+Setas (5 mm) |
