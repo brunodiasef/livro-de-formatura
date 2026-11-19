@@ -111,8 +111,120 @@ function shapePath(frame, x, y, w, h) {
     p.moveTo(x, y + h); p.lineTo(x, y + r);
     p.arc(x + w / 2, y + r, w / 2, Math.PI, 0, false);
     p.lineTo(x + w, y + h); p.closePath();
-  } else p.rect(x, y, w, h);
+  } else if (frame === 'heart') return heartPath(x, y, w, h);
+  else if (frame === 'scallop') return scallopPath(x, y, w, h);
+  else p.rect(x, y, w, h);
   return p;
+}
+
+// coração que ocupa exatamente o quadro x,y,w,h
+function heartPath(x, y, w, h) {
+  const pts = [];
+  for (let i = 0; i < 240; i++) {
+    const t = (i / 240) * Math.PI * 2;
+    pts.push([16 * Math.sin(t) ** 3, -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t))]);
+  }
+  let y0 = Infinity, y1 = -Infinity;
+  for (const q of pts) { y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }
+  const p = new Path2D();
+  pts.forEach(([px, py], i) => {
+    const X = x + ((px + 16) / 32) * w, Y = y + ((py - y0) / (y1 - y0)) * h;
+    if (i) p.lineTo(X, Y); else p.moveTo(X, Y);
+  });
+  p.closePath();
+  return p;
+}
+
+// retângulo com borda ondulada (festonê)
+function scallopPath(x, y, w, h) {
+  const r0 = Math.min(w, h) * 0.045;
+  const ix = x + r0, iy = y + r0, iw = w - 2 * r0, ih = h - 2 * r0;
+  const kx = Math.max(2, Math.round(iw / (2 * r0))), ky = Math.max(2, Math.round(ih / (2 * r0)));
+  const sx = iw / kx, sy = ih / ky;
+  const p = new Path2D();
+  p.moveTo(ix, iy);
+  for (let i = 0; i < kx; i++) p.arc(ix + (i + 0.5) * sx, iy, sx / 2, Math.PI, 0, false);
+  for (let i = 0; i < ky; i++) p.arc(ix + iw, iy + (i + 0.5) * sy, sy / 2, -Math.PI / 2, Math.PI / 2, false);
+  for (let i = 0; i < kx; i++) p.arc(ix + iw - (i + 0.5) * sx, iy + ih, sx / 2, 0, Math.PI, false);
+  for (let i = 0; i < ky; i++) p.arc(ix, iy + ih - (i + 0.5) * sy, sy / 2, Math.PI / 2, Math.PI * 1.5, false);
+  p.closePath();
+  return p;
+}
+
+// borda de papel rasgado (sempre para dentro do quadro)
+function tornPath(x, y, w, h, seed) {
+  const R = rng(seed);
+  const md = Math.min(w, h);
+  const amp = md * 0.022, step = md * 0.011;
+  const p = new Path2D();
+  let first = true;
+  const edge = (x0, y0, x1, y1, nx, ny) => {
+    const n = Math.max(2, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step));
+    for (let i = 0; i < n; i++) {
+      const t = i / n, d = amp * (0.3 + R() * 0.7);
+      const X = x0 + (x1 - x0) * t + nx * d, Y = y0 + (y1 - y0) * t + ny * d;
+      if (first) { p.moveTo(X, Y); first = false; } else p.lineTo(X, Y);
+    }
+  };
+  edge(x, y, x + w, y, 0, 1);
+  edge(x + w, y, x + w, y + h, -1, 0);
+  edge(x + w, y + h, x, y + h, 0, -1);
+  edge(x, y + h, x, y, 1, 0);
+  p.closePath();
+  return p;
+}
+
+// molduras "de papel": passe-partout, fita adesiva e papel rasgado
+export const PAPER_FRAMES = ['polaroid', 'passepartout', 'tape', 'torn'];
+function drawPaperFrame(ctx, el, fitEl, im, empty, o) {
+  const x = -el.w / 2, y = -el.h / 2, w = el.w, h = el.h, s = o.s, md = Math.min(w, h);
+  let paper;
+  if (el.frame === 'torn') paper = tornPath(x, y, w, h, el.seed || 5);
+  else { paper = new Path2D(); paper.rect(x, y, w, h); }
+  const pad = el.frame === 'passepartout' ? md * 0.12 : el.frame === 'torn' ? md * 0.075 : md * 0.035;
+  const mat = el.frame === 'passepartout' ? '#FCF9F2' : '#FDFCF8';
+  if (el.shadow) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(45,28,18,0.30)'; ctx.shadowBlur = 2.4 * s; ctx.shadowOffsetY = 0.8 * s;
+    ctx.fillStyle = mat; ctx.fill(paper);
+    ctx.restore();
+  }
+  ctx.fillStyle = mat; ctx.fill(paper);
+  const px = x + pad, py = y + pad, pw = w - 2 * pad, ph = h - 2 * pad;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(px, py, pw, ph); ctx.clip();
+  const r = imageRect(im, px, py, pw, ph, fitEl);
+  ctx.filter = empty ? 'none' : filterStr(el);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(im.bmp, r.x, r.y, r.w, r.h);
+  ctx.filter = 'none';
+  ctx.restore();
+  if (el.frame === 'passepartout') {
+    ctx.strokeStyle = 'rgba(70,48,30,0.28)'; ctx.lineWidth = 0.12; ctx.strokeRect(px, py, pw, ph); // bisel
+    ctx.strokeStyle = paint(ctx, el.border || 'gold', x, y, w, h);
+    ctx.lineWidth = 0.32; ctx.strokeRect(px - pad * 0.3, py - pad * 0.3, pw + pad * 0.6, ph + pad * 0.6);
+    ctx.lineWidth = 0.14; ctx.strokeRect(x + pad * 0.22, y + pad * 0.22, w - pad * 0.44, h - pad * 0.44);
+  } else {
+    ctx.lineWidth = 0.12; ctx.strokeStyle = 'rgba(0,0,0,0.10)'; ctx.stroke(paper);
+  }
+  if (el.frame === 'tape') {
+    const R = rng(el.seed || 9);
+    for (const sd of [-1, 1]) {
+      const tw = md * 0.34, th = md * 0.1, teeth = 7;
+      ctx.save();
+      ctx.translate(sd * (w / 2 - md * 0.07), y + md * 0.03);
+      ctx.rotate(sd * rad(40 + (R() - 0.5) * 12));
+      ctx.fillStyle = 'rgba(236,212,188,0.8)';
+      ctx.beginPath(); // fita com as pontas serrilhadas
+      ctx.moveTo(-tw / 2, -th / 2); ctx.lineTo(tw / 2, -th / 2);
+      for (let i = 0; i <= teeth; i++) ctx.lineTo(tw / 2 - (i % 2) * th * 0.08, -th / 2 + (th * i) / teeth);
+      ctx.lineTo(-tw / 2, th / 2);
+      for (let i = teeth; i >= 0; i--) ctx.lineTo(-tw / 2 + (i % 2) * th * 0.08, -th / 2 + (th * i) / teeth);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.fillRect(-tw / 2, -th / 2, tw, th * 0.3);
+      ctx.restore();
+    }
+  }
 }
 
 function drawPhoto(ctx, el, o) {
@@ -124,6 +236,7 @@ function drawPhoto(ctx, el, o) {
   }
   const fitEl = empty ? { ...el, fit: 'cover', zoom: 1, panX: 0, panY: 0, filter: 'none', brightness: 1, contrast: 1 } : el;
   if (el.frame === 'brush' || el.frame === 'soft') return drawBrush(ctx, el, fitEl, im, o);
+  if (el.frame === 'passepartout' || el.frame === 'tape' || el.frame === 'torn') return drawPaperFrame(ctx, el, fitEl, im, empty, o);
 
   const x = -el.w / 2, y = -el.h / 2, w = el.w, h = el.h;
   const s = o.s;
@@ -476,6 +589,210 @@ function drawDeco(ctx, el, o) {
       ctx.fillRect(w * 0.33, h * 0.28, w * 0.06, h * 0.16);
       break;
     }
+    case 'heart':
+      ctx.fillStyle = paint(ctx, el.color, x, y, w, h);
+      ctx.fill(heartPath(x, y, w, h));
+      break;
+    case 'star': {
+      ctx.fillStyle = paint(ctx, el.color, x, y, w, h);
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI) / 5, k = i % 2 ? 0.42 : 1;
+        const px = Math.cos(a) * (w / 2) * k, py = Math.sin(a) * (h / 2) * k + h * 0.05;
+        if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+      }
+      ctx.closePath(); ctx.fill();
+      break;
+    }
+    case 'flower': {
+      const col = paint(ctx, el.color, x, y, w, h);
+      ctx.save();
+      ctx.scale(w / Math.min(w, h), h / Math.min(w, h));
+      const m = Math.min(w, h) / 2;
+      ctx.strokeStyle = col; ctx.fillStyle = col;
+      ctx.lineWidth = Math.max(0.15, m * 0.06);
+      const a0 = ctx.globalAlpha;
+      for (let i = 0; i < 5; i++) {
+        ctx.save();
+        ctx.rotate((i * 2 * Math.PI) / 5);
+        ctx.beginPath(); ctx.ellipse(0, -m * 0.5, m * 0.27, m * 0.45, 0, 0, Math.PI * 2);
+        ctx.globalAlpha = a0 * 0.22; ctx.fill();
+        ctx.globalAlpha = a0; ctx.stroke();
+        ctx.restore();
+      }
+      ctx.beginPath(); ctx.arc(0, 0, m * 0.15, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      break;
+    }
+    case 'branch': {
+      ctx.fillStyle = paint(ctx, el.color, x, y, w, h);
+      ctx.strokeStyle = ctx.fillStyle;
+      const p0 = [x + w * 0.02, h * 0.22], p1 = [0, -h * 0.3], p2 = [x + w * 0.97, -h * 0.02];
+      const at = (t) => [(1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0], (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]];
+      const tan = (t) => Math.atan2(2 * (1 - t) * (p1[1] - p0[1]) + 2 * t * (p2[1] - p1[1]), 2 * (1 - t) * (p1[0] - p0[0]) + 2 * t * (p2[0] - p1[0]));
+      ctx.lineWidth = Math.max(0.15, h * 0.035); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(...p0); ctx.quadraticCurveTo(...p1, ...p2); ctx.stroke();
+      const N = 10;
+      for (let i = 0; i <= N; i++) {
+        const t = 0.06 + (i / N) * 0.9;
+        const [bx, by] = at(t);
+        const sgn = i === N ? 0 : i % 2 ? 1 : -1;
+        const L = h * 0.46 * (1 - Math.abs(t - 0.45) * 0.7), Wd = L * 0.36;
+        ctx.save(); ctx.translate(bx, by); ctx.rotate(tan(t) + sgn * 0.7);
+        ctx.beginPath(); ctx.ellipse(L / 2, 0, L / 2, Wd / 2, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+      break;
+    }
+    case 'ribbon': {
+      const col = paint(ctx, el.color, x, y, w, h);
+      const tw = Math.min(w * 0.16, h * 1.1);
+      const bx0 = x + tw, bx1 = x + w - tw, bTop = y, bBot = y + h * 0.72, tTop = y + h * 0.28, tBot = y + h;
+      for (const sd of [-1, 1]) {
+        const X = (v) => (sd < 0 ? v : -v); // espelha o lado direito
+        const ox = X(x), ix = X(bx0 + tw * 0.35), fx = X(bx0);
+        ctx.fillStyle = col;
+        ctx.beginPath(); // ponta com corte em V
+        ctx.moveTo(ix, tTop); ctx.lineTo(ox, tTop); ctx.lineTo(ox + (X(x + tw * 0.42) - ox), (tTop + tBot) / 2);
+        ctx.lineTo(ox, tBot); ctx.lineTo(ix, tBot); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(40,24,10,0.22)'; ctx.fill();
+        ctx.beginPath(); // dobra
+        ctx.moveTo(fx, bBot); ctx.lineTo(ix, tBot); ctx.lineTo(ix, bBot); ctx.closePath();
+        ctx.fillStyle = col; ctx.fill();
+        ctx.fillStyle = 'rgba(40,24,10,0.45)'; ctx.fill();
+      }
+      ctx.fillStyle = col;
+      ctx.fillRect(bx0, bTop, bx1 - bx0, bBot - bTop);
+      ctx.fillStyle = 'rgba(255,250,235,0.45)';
+      const lw = Math.max(0.12, h * 0.018);
+      ctx.fillRect(bx0 + h * 0.08, bTop + h * 0.08, bx1 - bx0 - h * 0.16, lw);
+      ctx.fillRect(bx0 + h * 0.08, bBot - h * 0.08 - lw, bx1 - bx0 - h * 0.16, lw);
+      break;
+    }
+    case 'corner': {
+      // canto ornamentado: o vértice fica no canto de cima à esquerda (use Espelhar para os outros cantos)
+      const col = paint(ctx, el.color, x, y, w, h);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineCap = 'round';
+      const m = Math.min(w, h);
+      const P2 = (u, v, swap) => (swap ? [v * w, u * h] : [u * w, v * h]);
+      for (const sw of [false, true]) {
+        ctx.lineWidth = Math.max(0.16, m * 0.026);
+        ctx.beginPath(); ctx.moveTo(...P2(0.13, 0.035, sw)); ctx.lineTo(...P2(1, 0.035, sw)); ctx.stroke();
+        ctx.beginPath(); ctx.arc(...P2(1, 0.035, sw), Math.max(0.2, m * 0.02), 0, Math.PI * 2); ctx.fill();
+        ctx.lineWidth = Math.max(0.14, m * 0.02);
+        ctx.beginPath();
+        ctx.moveTo(...P2(0.82, 0.05, sw));
+        ctx.bezierCurveTo(...P2(0.55, 0.06, sw), ...P2(0.36, 0.1, sw), ...P2(0.29, 0.24, sw));
+        ctx.bezierCurveTo(...P2(0.24, 0.34, sw), ...P2(0.33, 0.41, sw), ...P2(0.4, 0.35, sw));
+        ctx.bezierCurveTo(...P2(0.45, 0.3, sw), ...P2(0.41, 0.23, sw), ...P2(0.35, 0.25, sw));
+        ctx.stroke();
+        ctx.save(); // folhinha
+        ctx.translate(...P2(0.62, 0.09, sw)); ctx.rotate(sw ? Math.PI / 2 + 0.5 : -0.5);
+        ctx.beginPath(); ctx.ellipse(0, 0, m * 0.07, m * 0.025, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+      ctx.fill(sparklePath(0.13 * w, 0.13 * h, m * 0.07, m * 0.07));
+      ctx.save(); ctx.translate(0.5 * w, 0.5 * h); ctx.rotate(Math.PI / 4);
+      ctx.beginPath(); ctx.ellipse(0, 0, m * 0.11, m * 0.035, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      ctx.restore();
+      break;
+    }
+    case 'flourish': {
+      ctx.strokeStyle = paint(ctx, el.color, x, y, w, h); ctx.fillStyle = ctx.strokeStyle;
+      ctx.lineCap = 'round';
+      ctx.lineWidth = Math.max(0.16, h * 0.06);
+      for (const sd of [-1, 1]) {
+        ctx.save(); ctx.scale(sd, 1);
+        ctx.beginPath();
+        ctx.moveTo(h * 0.42, 0);
+        ctx.bezierCurveTo(w * 0.12, -h * 0.5, w * 0.24, -h * 0.5, w * 0.3, 0);
+        ctx.bezierCurveTo(w * 0.36, h * 0.48, w * 0.46, h * 0.4, w * 0.47, h * 0.04);
+        ctx.bezierCurveTo(w * 0.475, -h * 0.2, w * 0.43, -h * 0.22, w * 0.415, -h * 0.03);
+        ctx.stroke();
+        ctx.beginPath(); ctx.arc(w * 0.3, 0, Math.max(0.2, h * 0.07), 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+      ctx.fill(sparklePath(0, 0, h * 0.32, h * 0.46));
+      break;
+    }
+    case 'confetti': {
+      const R = rng(el.seed || 4);
+      ctx.fillStyle = paint(ctx, el.color, x, y, w, h);
+      const a0 = ctx.globalAlpha, md = Math.min(w, h);
+      const n = Math.round(clamp((w * h) / 35, 8, 70));
+      for (let i = 0; i < n; i++) {
+        const px = x + R() * w, py = y + R() * h, k = R(), sz = md * (0.035 + R() * 0.05);
+        ctx.globalAlpha = a0 * (0.5 + R() * 0.5);
+        if (k < 0.45) { ctx.beginPath(); ctx.arc(px, py, sz * 0.4, 0, Math.PI * 2); ctx.fill(); }
+        else if (k < 0.8) ctx.fill(sparklePath(px, py, sz * 0.75, sz * 0.75));
+        else { ctx.save(); ctx.translate(px, py); ctx.rotate(R() * Math.PI); ctx.fillRect(-sz * 0.3, -sz * 0.3, sz * 0.6, sz * 0.6); ctx.restore(); }
+      }
+      ctx.globalAlpha = a0;
+      break;
+    }
+    case 'diploma': {
+      const col = paint(ctx, el.color, x, y, w, h);
+      const r = h * 0.36, e = r * 0.42;
+      const body = ctx.createLinearGradient(0, -r, 0, r);
+      body.addColorStop(0, '#FFFDF6'); body.addColorStop(0.55, '#F3E7CE'); body.addColorStop(1, '#D8C29C');
+      ctx.fillStyle = body;
+      ctx.beginPath();
+      ctx.moveTo(x + e, -r); ctx.lineTo(x + w - e, -r);
+      ctx.ellipse(x + w - e, 0, e, r, 0, -Math.PI / 2, Math.PI / 2);
+      ctx.lineTo(x + e, r);
+      ctx.ellipse(x + e, 0, e, r, 0, Math.PI / 2, Math.PI * 1.5);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(120,88,48,0.5)'; ctx.lineWidth = Math.max(0.12, h * 0.025); ctx.stroke();
+      ctx.fillStyle = '#EFE1C2';
+      ctx.beginPath(); ctx.ellipse(x + e, 0, e, r, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x + e, 0, e * 0.45, r * 0.45, 0, 0, Math.PI * 2); ctx.stroke();
+      // fita com laço
+      ctx.fillStyle = col;
+      ctx.fillRect(-h * 0.07, -r, h * 0.14, 2 * r);
+      for (const sd of [-1, 1]) {
+        ctx.save(); ctx.translate(sd * h * 0.2, -r * 0.05); ctx.rotate(sd * 0.35);
+        ctx.beginPath(); ctx.ellipse(0, 0, h * 0.2, h * 0.11, 0, 0, Math.PI * 2);
+        ctx.lineWidth = Math.max(0.15, h * 0.06); ctx.strokeStyle = col; ctx.stroke();
+        ctx.restore();
+        ctx.beginPath();
+        ctx.moveTo(sd * h * 0.02, 0); ctx.lineTo(sd * h * 0.26, h * 0.5); ctx.lineTo(sd * h * 0.13, h * 0.44); ctx.lineTo(sd * h * 0.07, h * 0.5);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.beginPath(); ctx.arc(0, -r * 0.05, h * 0.09, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
+    case 'seal': {
+      const col = paint(ctx, el.color, x, y, w, h);
+      const R0 = Math.min(w, h * 0.78) / 2, cy = y + R0;
+      for (const sd of [-1, 1]) { // fitas
+        ctx.beginPath();
+        ctx.moveTo(sd * R0 * 0.08, cy); ctx.lineTo(sd * R0 * 0.66, cy + R0 * 0.3);
+        ctx.lineTo(sd * R0 * 0.66, y + h); ctx.lineTo(sd * R0 * 0.38, y + h - R0 * 0.22); ctx.lineTo(sd * R0 * 0.1, y + h);
+        ctx.closePath();
+        ctx.fillStyle = col; ctx.fill();
+        ctx.fillStyle = 'rgba(40,24,10,0.18)'; ctx.fill();
+      }
+      ctx.fillStyle = col;
+      ctx.beginPath(); // borda serrilhada
+      const n = 40;
+      for (let i = 0; i < n * 2; i++) {
+        const a = (i * Math.PI) / n, rr = i % 2 ? R0 * 0.93 : R0;
+        const px = Math.cos(a) * rr, py = cy + Math.sin(a) * rr;
+        if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,250,235,0.8)';
+      ctx.lineWidth = Math.max(0.12, R0 * 0.035);
+      ctx.beginPath(); ctx.arc(0, cy, R0 * 0.78, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = Math.max(0.1, R0 * 0.018);
+      ctx.beginPath(); ctx.arc(0, cy, R0 * 0.7, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,250,235,0.85)';
+      ctx.fill(sparklePath(0, cy, R0 * 0.3, R0 * 0.3));
+      break;
+    }
     case 'panel':
       ctx.fillStyle = el.color && el.color !== 'gold' ? el.color : C.paper;
       if (el.radius) { ctx.beginPath(); ctx.roundRect(x, y, w, h, el.radius); ctx.fill(); }
@@ -523,7 +840,7 @@ function paperTexture(ctx, o, dark) {
 export function drawBackground(ctx, page, side, o) {
   const bg = page.bg || 'aquarela';
   const W = PAGE_W, H = PAGE_H;
-  const base = { aquarela: C.paper, creme: C.paper, classico: C.paper, blush: '#FAEEE6', branco: '#FFFFFF', noite: '#1E1815' }[bg] || C.paper;
+  const base = { aquarela: C.paper, creme: C.paper, classico: C.paper, blush: '#FAEEE6', branco: '#FFFFFF', noite: '#1E1815', salvia: '#F8F6EF', pergaminho: '#F2E5CA', ornamentado: C.paper }[bg] || C.paper;
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, W, H);
   if (bg === 'blush') {
@@ -542,12 +859,46 @@ export function drawBackground(ctx, page, side, o) {
   const dir = side === 'right' ? -1 : 1;
   const seed = hashStr(page.id || 'p');
 
+  if (bg === 'pergaminho') {
+    paperTexture(ctx, o, false); // textura mais marcada
+    const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.22, W / 2, H / 2, H * 0.78);
+    g.addColorStop(0, 'rgba(255,250,236,0.35)'); g.addColorStop(1, 'rgba(150,104,50,0.30)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.globalAlpha = 0.5;
+    softBlob(ctx, outer + dir * 12, H * 0.22, 46, 34, '#DDBF8E', seed, o, 0.2);
+    softBlob(ctx, W - outer - dir * 14, H * 0.8, 40, 30, '#E2C89C', seed + 7, o, 0.2);
+    ctx.restore();
+  }
+  if (bg === 'salvia') {
+    softBlob(ctx, outer + dir * 6, 15, 74, 54, '#A3B78F', seed, o);
+    softBlob(ctx, outer + dir * 9, H - 18, 64, 50, '#B2C39F', seed + 11, o);
+    softBlob(ctx, W - outer - dir * 4, H * 0.5, 36, 60, '#CFDAC0', seed + 21, o, 0.2);
+    softBlob(ctx, W - outer - dir * 10, 12, 30, 22, '#F2D3C2', seed + 31, o, 0.2);
+  }
+  if (bg === 'ornamentado') {
+    const ins = 7;
+    ctx.save();
+    ctx.strokeStyle = goldGradient(ctx, 0, 0, W, H);
+    ctx.lineWidth = 0.45; ctx.strokeRect(ins, ins, W - 2 * ins, H - 2 * ins);
+    ctx.lineWidth = 0.16; ctx.strokeRect(ins + 1.6, ins + 1.6, W - 2 * ins - 3.2, H - 2 * ins - 3.2);
+    ctx.restore();
+    const cs = 17, ci = ins + 2.6;
+    for (const [fx, fy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      drawElement(ctx, {
+        type: 'deco', kind: 'corner', color: 'gold', seed,
+        x: fx ? W - ci - cs : ci, y: fy ? H - ci - cs : ci, w: cs, h: cs, flipX: !!fx, flipY: !!fy,
+      }, o);
+    }
+    softBlob(ctx, outer + dir * 4, 10, 40, 28, '#F3D7C8', seed, o, 0.2);
+    softBlob(ctx, W - outer - dir * 4, H - 10, 40, 28, '#F3D7C8', seed + 5, o, 0.2);
+  }
+
   if (bg === 'aquarela' || bg === 'blush') {
     softBlob(ctx, outer + dir * 6, 14, 72, 50, '#EFC2AC', seed, o);
     softBlob(ctx, outer + dir * 8, H - 18, 62, 48, '#F2CBB8', seed + 11, o);
     if (bg === 'aquarela') softBlob(ctx, W - outer - dir * 4, H * 0.5, 36, 60, '#F5D9CA', seed + 21, o, 0.2);
   }
-  if (bg === 'aquarela' || bg === 'noite') {
+  if (bg === 'aquarela' || bg === 'noite' || bg === 'salvia') {
     // faixa dourada na borda externa
     ctx.save();
     ctx.translate(outer, H * 0.6);

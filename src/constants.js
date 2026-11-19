@@ -38,6 +38,9 @@ export const BACKGROUNDS = [
   { id: 'blush', name: 'Rosé suave', swatch: 'linear-gradient(160deg,#FBEFE6,#F4D6C6)' },
   { id: 'branco', name: 'Branco', swatch: '#FFFFFF' },
   { id: 'noite', name: 'Escuro elegante', swatch: 'linear-gradient(160deg,#2A211C,#16110E)' },
+  { id: 'salvia', name: 'Aquarela sálvia', swatch: 'linear-gradient(135deg,#A3B78F 0%,#F8F6EF 42%,#F8F6EF 70%,#E9CF85 100%)' },
+  { id: 'pergaminho', name: 'Pergaminho', swatch: 'radial-gradient(circle,#F8EEDA 30%,#DCC092 100%)' },
+  { id: 'ornamentado', name: 'Cantos ornamentados', swatch: '#FBF6EE', border: true },
 ];
 
 export const FRAMES = [
@@ -48,6 +51,11 @@ export const FRAMES = [
   { id: 'circle', name: 'Círculo / oval' },
   { id: 'arch', name: 'Arco' },
   { id: 'polaroid', name: 'Polaroid' },
+  { id: 'passepartout', name: 'Passe-partout dourado' },
+  { id: 'tape', name: 'Foto com fita adesiva' },
+  { id: 'torn', name: 'Papel rasgado' },
+  { id: 'scallop', name: 'Borda ondulada' },
+  { id: 'heart', name: 'Coração' },
 ];
 
 export const DECOS = [
@@ -64,4 +72,15 @@ export const DECOS = [
   { id: 'cap', name: 'Capelo', w: 22, h: 15 },
   { id: 'frame', name: 'Moldura dupla', w: 60, h: 40 },
   { id: 'panel', name: 'Faixa / caixa de fundo', w: 60, h: 20, color: '#FBF6EE', opacity: 0.9 },
+  '-',
+  { id: 'ribbon', name: 'Faixa de fita (para nome)', w: 64, h: 15, isNew: true },
+  { id: 'flourish', name: 'Arabesco', w: 44, h: 9, isNew: true },
+  { id: 'corner', name: 'Canto ornamentado', w: 18, h: 18, isNew: true },
+  { id: 'branch', name: 'Raminho de folhas', w: 32, h: 12, isNew: true },
+  { id: 'flower', name: 'Florzinha', w: 9, h: 9, isNew: true },
+  { id: 'heart', name: 'Coração', w: 8, h: 7, isNew: true },
+  { id: 'star', name: 'Estrela', w: 7, h: 7, isNew: true },
+  { id: 'confetti', name: 'Confete dourado', w: 40, h: 24, isNew: true },
+  { id: 'diploma', name: 'Diploma (canudo)', w: 30, h: 11, isNew: true },
+  { id: 'seal', name: 'Selo / medalha', w: 16, h: 21, isNew: true },
 ];

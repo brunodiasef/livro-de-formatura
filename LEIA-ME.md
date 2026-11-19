@@ -54,6 +54,12 @@ As guias tracejadas no editor mostram a área segura (azul) e a linha de corte (
 
 Ao trocar de modelo, a foto e os textos que você já inseriu continuam no lugar.
 
+## Fundos, molduras e enfeites
+
+- **9 fundos de página** (clique numa área vazia da página › Fundo da página): Aquarela creme, Creme liso, Clássico com moldura, Rosé suave, Branco, Escuro elegante, Aquarela sálvia, Pergaminho e Cantos ornamentados.
+- **12 molduras de foto** (clique na foto › Moldura › Estilo): Aquarela em tinta, Aquarela suave, Retângulo, Cantos arredondados, Círculo/oval, Arco, Polaroid, Passe-partout dourado, Foto com fita adesiva, Papel rasgado, Borda ondulada e Coração. A Borda ondulada e o Coração aceitam borda dourada, branca, marrom ou preta.
+- **23 enfeites** (botão **Enfeite** na barra de cima). Os 10 mais novos são: Faixa de fita (para pôr o nome por cima), Arabesco, Canto ornamentado (use **Espelhar** para os outros cantos), Raminho de folhas, Florzinha, Coração, Estrela, Confete dourado, Diploma (canudo) e Selo/medalha. Todos trocam de cor.
+
 ## Fluxo sugerido
 
 1. **Alunos em lote**: selecione as fotos de todos os alunos de uma vez. O nome vem do nome do arquivo. Cole os textos e o app monta as páginas.

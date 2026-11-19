@@ -6,7 +6,7 @@ import {
   saveSlotAsTemplate, deleteCustomTemplate, renameCustomTemplate, getMulti,
 } from './state.js';
 import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
-import { renderPage, renderSheetCanvas, layoutText, photoDpi } from './render.js';
+import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER_FRAMES } from './render.js';
 import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected } from './editor.js';
 import { FONTS, fontWeights, fontHasItalic, WEIGHT_NAMES } from './fonts.js';
 import { BACKGROUNDS, FRAMES, DECOS, SWATCHES, PAGE_W, PAGE_H, HALF_H, DPI_MIN, DPI_GOOD } from './constants.js';
@@ -65,11 +65,13 @@ function menu(anchor, items) {
   const m = h('div', { class: 'menu' });
   for (const it of items) {
     if (it === '-') { m.append(h('div', { class: 'menu-sep' })); continue; }
-    m.append(h('button', { class: 'menu-item', onClick: () => { m.remove(); it.onClick(); } }, it.icon ? icon(it.icon) : null, h('span', {}, it.label)));
+    m.append(h('button', { class: 'menu-item', onClick: () => { m.remove(); it.onClick(); } },
+      it.icon ? icon(it.icon) : null, it.preview ? it.preview() : null, h('span', {}, it.label), it.badge ? h('em', { class: 'menu-badge' }, it.badge) : null));
   }
   const r = anchor.getBoundingClientRect();
   m.style.left = r.left + 'px';
   m.style.top = r.bottom + 6 + 'px';
+  m.style.maxHeight = `calc(100vh - ${Math.round(r.bottom) + 18}px)`;
   document.body.append(m);
   setTimeout(() => document.addEventListener('mousedown', function f(e) {
     if (!m.contains(e.target)) { m.remove(); document.removeEventListener('mousedown', f); }
@@ -83,7 +85,9 @@ function buildTopbar() {
   redoBtn = btn('', { icon: 'redo', title: 'Refazer (Ctrl+Y)', onClick: redo });
   saveStatus = h('span', { class: 'save-status' });
   const decoBtn = btn('Enfeite', { icon: 'sparkle', title: 'Adicionar enfeite' });
-  decoBtn.addEventListener('click', () => menu(decoBtn, DECOS.map((d) => ({ label: d.name, onClick: () => addDeco(d) }))));
+  decoBtn.addEventListener('click', () => menu(decoBtn, DECOS.map((d) => (d === '-' ? '-' : {
+    label: d.name, badge: d.isNew ? 'novo' : null, preview: () => decoPreview(d), onClick: () => addDeco(d),
+  }))));
   const projBtn = btn('Projeto', { icon: 'folder' });
   projBtn.addEventListener('click', () => menu(projBtn, [
     { label: 'Salvar cópia do projeto (.livro.json)…', icon: 'save', onClick: saveProjectFile },
@@ -164,6 +168,19 @@ function addElement(el) {
 }
 function addText() { addElement(T({ ...BODY, text: 'Digite o texto aqui', w: 60, h: 14, autoFit: true })); }
 function addPhoto() { addElement(P({ frame: 'rounded', w: 40, h: 50 })); }
+// miniatura do enfeite para o menu
+function decoPreview(d) {
+  const W = 40, H = 24, dpr = 2;
+  const c = h('canvas', { class: 'menu-prev' });
+  c.width = W * dpr; c.height = H * dpr;
+  const k = Math.min((W - 6) / d.w, (H - 6) / Math.max(d.h, 1.2));
+  const ctx = c.getContext('2d');
+  ctx.scale(dpr * k, dpr * k);
+  const el = { type: 'deco', kind: d.id, w: d.w, h: d.h, x: (W / k - d.w) / 2, y: (H / k - d.h) / 2, rotation: d.rotation || 0, variant: d.variant, color: d.id === 'panel' ? '#E9DCC8' : d.color || 'gold', opacity: 1, seed: 7 };
+  try { drawElement(ctx, el, { s: dpr * k, cache: false }); } catch { /* miniatura é só enfeite */ }
+  return c;
+}
+
 function addDeco(d) {
   addElement(D(d.id, { w: d.w, h: d.h, rotation: d.rotation || 0, variant: d.variant, color: d.color || 'gold', opacity: d.opacity ?? 1 }));
 }
@@ -600,7 +617,7 @@ function renderPhotoProps(body, s) {
     icon: 'move', cls: state.panMode ? 'primary' : '',
     onClick: () => { state.panMode = !state.panMode; emit('select'); },
   });
-  const borderable = ['rect', 'rounded', 'circle', 'arch'].includes(el.frame);
+  const borderable = ['rect', 'rounded', 'circle', 'arch', 'scallop', 'heart'].includes(el.frame);
 
   appendAll(body,
     header('Foto', where(s)),
@@ -620,7 +637,10 @@ function renderPhotoProps(body, s) {
       h('p', { class: 'hint' }, 'Atalho: segure Alt e arraste a foto para enquadrar. Duplo clique também ativa o ajuste.'),
     ) : null,
     section('Moldura',
-      field('Estilo', selectInput(el, 'frame', FRAMES.map((f) => [f.id, f.name]))),
+      field('Estilo', selectInput(el, 'frame', FRAMES.map((f) => [f.id, f.name]), (v) => {
+        // molduras de papel ficam melhores com sombra; ao trocar para uma delas, a sombra liga
+        if (PAPER_FRAMES.includes(v)) el.shadow = true;
+      })),
       field('Encaixe', selectInput(el, 'fit', [['cover', 'Preencher o quadro (corta as sobras)'], ['contain', 'Mostrar a imagem inteira (logos, brasões)']], () => { el.zoom = 1; el.panX = 0; el.panY = 0; })),
       borderable ? row(
         field('Borda', selectInput(el, 'border', [['null', 'Sem borda'], ['gold', 'Dourada'], ['#FFFFFF', 'Branca'], ['#3A2417', 'Marrom'], ['#1F1A17', 'Preta']])),

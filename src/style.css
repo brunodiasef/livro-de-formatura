@@ -194,7 +194,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgba(168, 129, 58
 .tpl-tag { font-size: 10.5px; color: var(--muted); }
 
 /* ───── menus, modais, avisos ───── */
-.menu { position: fixed; z-index: 50; min-width: 240px; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 5px; display: flex; flex-direction: column; }
+.menu { position: fixed; z-index: 50; min-width: 240px; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 5px; display: flex; flex-direction: column; overflow-y: auto; }
+.menu-prev { width: 40px; height: 24px; flex: none; background: #FBF6EE; border-radius: 4px; }
+.menu-badge { margin-left: auto; font-style: normal; font-size: 10px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 1px 6px; border-radius: 8px; }
 .menu-item { display: flex; gap: 9px; align-items: center; border: 0; background: transparent; padding: 8px 10px; border-radius: 7px; cursor: pointer; text-align: left; }
 .menu-item:hover { background: var(--panel-2); }
 .menu-sep { height: 1px; background: var(--line); margin: 4px 0; }
