@@ -7,7 +7,7 @@ import {
 } from './state.js';
 import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
 import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER_FRAMES } from './render.js';
-import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo, groupSelected, ungroupSelected, isOneGroup } from './editor.js';
+import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo, groupSelected, ungroupSelected, isOneGroup, lockSelected, unlockAllOnPage } from './editor.js';
 import { FONTS, fontWeights, fontHasItalic, WEIGHT_NAMES } from './fonts.js';
 import { BACKGROUNDS, FRAMES, DECOS, SWATCHES, PAGE_W, PAGE_H, HALF_H, DPI_MIN, DPI_GOOD } from './constants.js';
 import { h, uid, randSeed, debounce, clone } from './util.js';
@@ -424,6 +424,7 @@ function renderRight() {
     renderTemplates(body);
     body.scrollTop = templatesScroll;
   } else if (getMulti().length) renderMultiProps(body);
+  else if (s?.el?.locked) renderLockedProps(body, s);
   else if (s?.el?.type === 'text') renderTextProps(body, s);
   else if (s?.el?.type === 'photo') renderPhotoProps(body, s);
   else if (s?.el?.type === 'deco') renderDecoProps(body, s);
@@ -531,6 +532,15 @@ function openContextMenu({ x, y, onItem }) {
   const c = clipboardInfo();
   const s = getSel();
   const many = state.multi?.length >= 2;
+  if (onItem && !many && s?.el?.locked) {
+    menu({ x, y }, [
+      { label: 'Destravar', icon: 'unlock', keys: 'Ctrl+Shift+L', onClick: () => lockSelected(false) },
+      '-',
+      { label: 'Copiar', icon: 'copy', keys: 'Ctrl+C', onClick: () => copySelected() },
+      { label: 'Duplicar', icon: 'copy', keys: 'Ctrl+D', onClick: duplicateSelected },
+    ]);
+    return;
+  }
   const pasteLabel = c ? `Colar aqui (${c.whole ? (c.size === 'half' ? 'aluno inteiro' : 'página inteira') : c.count + (c.count === 1 ? ' item' : ' itens')})` : 'Colar aqui';
   const items = onItem || many ? [
     { label: many ? `Copiar ${state.multi.length} itens` : 'Copiar', icon: 'copy', keys: 'Ctrl+C', onClick: () => copySelected() },
@@ -541,6 +551,7 @@ function openContextMenu({ x, y, onItem }) {
     many && !isOneGroup(getMulti().map((f) => f.el)) ? { label: 'Agrupar', icon: 'grid', keys: 'Ctrl+G', onClick: groupSelected } : null,
     (many ? getMulti().map((f) => f.el) : [s?.el]).some((e) => e?.group) ? { label: 'Desagrupar', icon: 'grid', keys: 'Ctrl+Shift+G', onClick: ungroupSelected } : null,
     { label: 'Copiar o aluno inteiro', icon: 'grid', onClick: () => copySelected({ whole: true }) },
+    { label: 'Travar (cadeado)', icon: 'lock', keys: 'Ctrl+Shift+L', onClick: () => lockSelected(true) },
     '-',
     { label: 'Excluir', icon: 'trash', keys: 'Delete', onClick: deleteSelected },
   ].filter(Boolean) : [
@@ -548,6 +559,27 @@ function openContextMenu({ x, y, onItem }) {
     s ? { label: s.page.layout === 'halves' ? 'Copiar este aluno inteiro' : 'Copiar a página inteira', icon: 'grid', keys: 'Ctrl+C', onClick: () => copySelected({ whole: true }) } : null,
   ].filter(Boolean);
   menu({ x, y }, items);
+}
+
+// ───── item travado (cadeado) ─────
+function renderLockedProps(body, s) {
+  const el = s.el;
+  const kind = el.type === 'photo' ? 'Foto' : el.type === 'text' ? 'Texto' : DECOS.find((d) => d !== '-' && d.id === el.kind)?.name || 'Enfeite';
+  appendAll(body,
+    header(kind, where(s)),
+    section(null,
+      h('div', { class: 'locked-note' }, icon('lock'), h('div', {},
+        h('b', {}, 'Travado'),
+        h('p', {}, 'Este item não pode ser movido, redimensionado, girado, editado nem apagado. Destrave para mexer de novo.'))),
+      btn('Destravar', { icon: 'unlock', cls: 'primary block', onClick: () => lockSelected(false), title: 'Ctrl+Shift+L' }),
+    ),
+    section(null,
+      h('p', { class: 'hint' }, 'Dá para copiar ou duplicar: a cópia sai destravada.'),
+      h('div', { class: 'actions' },
+        btn('Copiar', { icon: 'copy', onClick: () => copySelected(), title: 'Ctrl+C' }),
+        btn('Duplicar', { icon: 'copy', onClick: duplicateSelected, title: 'Ctrl+D' })),
+    ),
+  );
 }
 
 function groupActions(els) {
@@ -575,7 +607,7 @@ function elementActions() {
     btn('Frente', { icon: 'front', onClick: () => reorderSelected('top'), title: 'Trazer para frente' }),
     btn('Trás', { icon: 'back', onClick: () => reorderSelected('bottom'), title: 'Enviar para trás' }),
     btn('Excluir', { icon: 'trash', cls: 'danger', onClick: deleteSelected, title: 'Delete' }),
-  ));
+  ), btn('Travar (cadeado)', { icon: 'lock', cls: 'block', onClick: () => lockSelected(true), title: 'Impede mover, editar ou apagar · Ctrl+Shift+L' }));
 }
 
 function header(title, sub) {
@@ -809,7 +841,8 @@ function renderMultiProps(body) {
       h('div', { class: 'actions' },
         btn('Duplicar', { icon: 'copy', onClick: duplicateSelected, title: 'Ctrl+D' }),
         btn('Excluir', { icon: 'trash', cls: 'danger', onClick: deleteSelected, title: 'Delete' }),
-      )),
+      ),
+      btn(`Travar os ${multi.length} itens (cadeado)`, { icon: 'lock', cls: 'block', onClick: () => lockSelected(true), title: 'Ctrl+Shift+L' })),
   );
 }
 
@@ -836,6 +869,7 @@ function renderPageProps(body) {
   if (!s) return;
   const { page, pageIdx } = s;
   const tmpl = getTemplate(s.slot.template);
+  const lockedCount = page.slots.reduce((n, sl) => n + sl.elements.filter((e) => e.locked).length, 0);
   const bgWrap = h('div', { class: 'bgs' });
   for (const b of BACKGROUNDS) {
     bgWrap.append(h('button', {
@@ -856,7 +890,7 @@ function renderPageProps(body) {
       h('p', { class: 'muted' }, 'Modelo: ', h('b', {}, tmpl.name)),
       h('div', { class: 'actions' },
         btn('Trocar modelo', { icon: 'grid', cls: 'primary', onClick: () => { rightTab = 'templates'; renderRight(); } }),
-        btn('Limpar fotos', { icon: 'trash', onClick: () => { s.slot.elements.forEach((e) => { if (e.type === 'photo') e.src = null; }); commit(); } }),
+        btn('Limpar fotos', { icon: 'trash', onClick: () => { s.slot.elements.forEach((e) => { if (e.type === 'photo' && !e.locked) e.src = null; }); commit(); } }),
       ),
       h('div', { class: 'actions' },
         btn(page.layout === 'halves' ? 'Copiar aluno' : 'Copiar página', {
@@ -872,6 +906,10 @@ function renderPageProps(body) {
         btn('Texto', { icon: 'text', onClick: addText }),
         btn('Foto', { icon: 'image', onClick: addPhoto })),
     ),
+    lockedCount ? section('Itens travados',
+      h('div', { class: 'locked-note' }, icon('lock'), h('p', {}, `${lockedCount === 1 ? '1 item travado' : lockedCount + ' itens travados'} nesta página. Clique num deles para destravar só ele, ou destrave todos aqui.`)),
+      btn('Destravar todos desta página', { icon: 'unlock', cls: 'block', onClick: () => unlockAllOnPage(page) }),
+    ) : null,
     section('Fundo da página', bgWrap),
     section('Página',
       h('div', { class: 'actions' },

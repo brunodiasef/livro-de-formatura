@@ -221,6 +221,12 @@ function renderOverlay() {
       g.strokeStyle = 'rgba(46,110,230,0.55)'; g.lineWidth = 1.5;
       g.strokeRect(Z(b.x0) - 4, Z(b.y0) - 4, Z(b.x1 - b.x0) + 8, Z(b.y1 - b.y0) + 8);
       g.restore();
+    } else if (hover.el.locked) {
+      const { ox, oy } = elWorld(hover.page, hover.slotIdx, hover.el);
+      drawBox(g, hover.el, ox, oy, 'rgba(120,120,130,0.7)', [6, 4]);
+      const { tr } = corners(hover.el, ox, oy);
+      const [lx, ly] = tr(-hover.el.w / 2, -hover.el.h / 2);
+      lockBadge(g, Z(lx), Z(ly) - 24, '');
     } else {
       const { ox, oy } = elWorld(hover.page, hover.slotIdx, hover.el);
       drawBox(g, hover.el, ox, oy, 'rgba(46,110,230,0.5)');
@@ -251,6 +257,12 @@ function renderOverlay() {
       drawBox(g, el, ox, oy, 'rgba(46,110,230,1)');
       g.fillStyle = 'rgba(46,110,230,0.95)'; g.font = '600 11px system-ui'; g.textAlign = 'center';
       g.fillText('Arraste para enquadrar · roda do mouse = zoom · Esc para sair', Z(cx), Z(oy + el.y + el.h) + 18);
+    } else if (el.locked) {
+      // travado: caixa sem alças, com o cadeado
+      drawBox(g, el, ox, oy, 'rgba(120,120,130,0.95)', [6, 4]);
+      const { tr } = corners(el, ox, oy);
+      const [lx, ly] = tr(-el.w / 2, -el.h / 2);
+      lockBadge(g, Z(lx), Z(ly) - 24, 'Travado');
     } else {
       drawBox(g, el, ox, oy, 'rgba(46,110,230,1)');
       for (const hd of handles(el, ox, oy)) {
@@ -361,7 +373,7 @@ function elementsInRect(r) {
 export function groupMates(el) {
   if (!el?.group) return el ? [el.id] : [];
   const ids = [];
-  for (const p of state.book.pages) for (const s of p.slots) for (const e of s.elements) if (e.group === el.group) ids.push(e.id);
+  for (const p of state.book.pages) for (const s of p.slots) for (const e of s.elements) if (e.group === el.group && (!e.locked || e === el)) ids.push(e.id);
   return ids;
 }
 function withGroups(ids) {
@@ -398,11 +410,51 @@ export function ungroupSelected() {
   toast('Desagrupado. Cada item agora se move sozinho.');
 }
 
+// ───────── cadeado (travar) ─────────
+// Item travado não se move, não muda de tamanho, não gira, não é apagado nem editado.
+export function lockSelected(lock = true) {
+  const multi = getMulti();
+  const sel = getSel();
+  const els = multi.length ? multi.map((f) => f.el) : sel?.el ? [sel.el] : [];
+  if (!els.length) { toast('Selecione o que você quer travar.', 'warn'); return; }
+  // travar um item de grupo trava o grupo todo
+  const all = new Set(els);
+  if (lock) for (const el of els) if (el.group) for (const p of state.book.pages) for (const s of p.slots) for (const e of s.elements) if (e.group === el.group) all.add(e);
+  for (const el of all) { if (lock) el.locked = true; else delete el.locked; }
+  const first = findElement([...all][0].id);
+  commit();
+  select({ pageId: first.page.id, slot: first.page.slots.indexOf(first.slot), elId: first.el.id });
+  toast(lock ? `Travado: ${all.size === 1 ? '1 item' : all.size + ' itens'}. Ninguém consegue mexer até destravar.` : `Destravado: ${all.size === 1 ? '1 item' : all.size + ' itens'}.`);
+}
+export function toggleLockSelected() {
+  const sel = getSel();
+  lockSelected(!(sel?.el?.locked && !getMulti().length));
+}
+export function unlockAllOnPage(page) {
+  let n = 0;
+  for (const s of page.slots) for (const e of s.elements) if (e.locked) { delete e.locked; n++; }
+  if (n) { commit(); toast(`Destravado: ${n === 1 ? '1 item' : n + ' itens'} desta página.`); }
+}
+
 // ids selecionados hoje (um ou vários)
 function currentIds() {
   if (state.multi?.length >= 2) return [...state.multi];
   const s = getSel();
   return s?.el ? [s.el.id] : [];
+}
+
+// etiqueta com cadeado desenhado (não depende de fonte de emoji)
+function lockBadge(g, x, y, label) {
+  g.save();
+  g.font = '600 11px system-ui';
+  const w = 22 + (label ? g.measureText(label).width + 6 : 0);
+  g.fillStyle = 'rgba(70,70,80,0.92)';
+  g.beginPath(); g.roundRect(x, y, w, 19, 9); g.fill();
+  g.strokeStyle = '#fff'; g.fillStyle = '#fff'; g.lineWidth = 1.4;
+  g.beginPath(); g.arc(x + 11, y + 8, 3, Math.PI, 0); g.stroke(); // alça
+  g.fillRect(x + 6.5, y + 8, 9, 6.5); // corpo
+  if (label) { g.textAlign = 'left'; g.fillText(label, x + 21, y + 13.5); }
+  g.restore();
 }
 
 function drawBox(g, el, ox, oy, color, dash) {
@@ -451,20 +503,24 @@ function hitTest(m) {
   const page = spreadPages()[side];
   if (!page) return null;
   const lx = m.x - pageX(side);
+  // itens travados só são "pegos" se não houver nenhum item solto embaixo do mouse
+  let lockedHit = null;
   for (let si = page.slots.length - 1; si >= 0; si--) {
     const oy = slotOffset(page, si);
     const els = page.slots[si].elements;
     for (let k = els.length - 1; k >= 0; k--) {
-      if (els[k].locked) continue;
-      if (hitEl(els[k], lx, m.y - oy)) return { page, slotIdx: si, el: els[k] };
+      if (!hitEl(els[k], lx, m.y - oy)) continue;
+      if (!els[k].locked) return { page, slotIdx: si, el: els[k] };
+      lockedHit ||= { page, slotIdx: si, el: els[k] };
     }
   }
+  if (lockedHit) return lockedHit;
   const si = page.layout === 'halves' ? (m.y < HALF_H ? 0 : 1) : 0;
   return { page, slotIdx: si, el: null };
 }
 
 function handleAt(sel, m) {
-  if (!sel?.el || !spreadPages().includes(sel.page) || state.panMode) return null;
+  if (!sel?.el || sel.el.locked || !spreadPages().includes(sel.page) || state.panMode) return null;
   const { ox, oy } = elWorld(sel.page, sel.slotIdx, sel.el);
   for (const hd of handles(sel.el, ox, oy)) {
     if (Math.hypot(hd.x - m.x, hd.y - m.y) * z < 8) return hd;
@@ -507,6 +563,13 @@ function onDown(e) {
     return;
   }
   const hit = hitTest(m);
+
+  // item travado: o clique só seleciona (para ver e destravar); arrastar desenha o retângulo de seleção
+  if (hit?.el?.locked) {
+    if (!e.shiftKey) select({ pageId: hit.page.id, slot: hit.slotIdx, elId: hit.el.id });
+    drag = { kind: 'marquee', start: m, cur: m, base: e.shiftKey ? currentIds() : [], moved: false, preview: [] };
+    return;
+  }
 
   // Ctrl (+ Shift) + arrastar: duplica, como no Word
   const copy = (e.ctrlKey || e.metaKey) && !!hit?.el;
@@ -689,6 +752,7 @@ function onDbl(e) {
   const hit = hitTest(m);
   if (!hit?.el) return;
   select({ pageId: hit.page.id, slot: hit.slotIdx, elId: hit.el.id });
+  if (hit.el.locked) { toast('Este item está travado. Destrave para editar (cadeado no painel ou botão direito).', 'warn'); return; }
   if (hit.el.type === 'photo') {
     if (!hit.el.src) pickPhoto(hit.el.id);
     else { state.panMode = !state.panMode; emit('select'); }
@@ -748,14 +812,15 @@ async function onDrop(e) {
   const m = toMM(e);
   const hit = hitTest(m);
   if (!hit) return;
-  if (hit.el?.type === 'photo' && files.length === 1) {
+  if (hit.el?.locked && hit.el.type === 'photo' && files.length === 1) { toast('Esta foto está travada. Destrave para trocar.', 'warn'); return; }
+  if (hit.el?.type === 'photo' && !hit.el.locked && files.length === 1) {
     select({ pageId: hit.page.id, slot: hit.slotIdx, elId: hit.el.id });
     await setPhotoFromFile(hit.el.id, files[0]);
     return;
   }
   // várias fotos: preenche os espaços vazios desta metade/página
   const order = [hit.slotIdx, ...hit.page.slots.map((_, i) => i).filter((i) => i !== hit.slotIdx)];
-  const targets = order.flatMap((i) => hit.page.slots[i].elements.filter((el) => el.type === 'photo' && !el.src)).map((el) => el.id);
+  const targets = order.flatMap((i) => hit.page.slots[i].elements.filter((el) => el.type === 'photo' && !el.src && !el.locked)).map((el) => el.id);
   if (!targets.length) { toast('Solte a foto em cima de um espaço de foto.', 'warn'); return; }
   let n = 0;
   for (const f of files) {
@@ -792,6 +857,12 @@ function onKey(e) {
   if (ctrl && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAllInSpread(); return; }
   if (ctrl && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(); return; }
   if (ctrl && e.key.toLowerCase() === 'c') { e.preventDefault(); copySelected(); return; }
+  if (ctrl && e.shiftKey && e.key.toLowerCase() === 'l') { e.preventDefault(); toggleLockSelected(); return; }
+  if (sel?.el?.locked && !multi.length && (e.key === 'Delete' || e.key === 'Backspace' || e.key.startsWith('Arrow') || (ctrl && e.key.toLowerCase() === 'x'))) {
+    e.preventDefault();
+    toast('Este item está travado. Destrave para mover ou apagar.', 'warn');
+    return;
+  }
   if (ctrl && e.key.toLowerCase() === 'x') { e.preventDefault(); copySelected({ cut: true }); return; }
   if (ctrl && e.key.toLowerCase() === 'g') { e.preventDefault(); e.shiftKey ? ungroupSelected() : groupSelected(); return; }
   if (!sel?.el && !multi.length) return;
@@ -846,6 +917,7 @@ export function duplicateSelected() {
   if (!sel?.el) return;
   const c = { ...clone(sel.el), id: uid(), seed: randSeed(), x: sel.el.x + 4, y: sel.el.y + 4 };
   delete c.group; // duplicar um item de dentro do grupo cria um item solto
+  delete c.locked; // a cópia de um item travado sai destravada
   sel.slot.elements.splice(sel.slot.elements.indexOf(sel.el) + 1, 0, c);
   state.sel = { ...state.sel, elId: c.id };
   commit();
@@ -912,6 +984,7 @@ export function pasteClipboard() {
   });
   remapGroups(els);
   if (els.length === 1) delete els[0].group;
+  if (!clip.whole) for (const c of els) delete c.locked; // itens colados saem destravados (o aluno inteiro mantém)
   if (replace) {
     t.slot.elements = els;
     if (clip.template) t.slot.template = clip.template;

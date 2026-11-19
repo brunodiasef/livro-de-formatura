@@ -15,6 +15,8 @@ export const ICON = {
   grid: P('<rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/>'),
   guides: P('<path d="M12 3v18" stroke-dasharray="3 3"/><rect x="3" y="5" width="18" height="14" rx="1"/>'),
   plus: P('<path d="M12 5v14M5 12h14"/>'),
+  lock: P('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+  unlock: P('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>'),
   minus: P('<path d="M5 12h14"/>'),
   up: P('<path d="m6 15 6-6 6 6"/>'),
   down: P('<path d="m6 9 6 6 6-6"/>'),

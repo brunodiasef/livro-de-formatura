@@ -80,6 +80,7 @@ Ao trocar de modelo, a foto e os textos que você já inseriu continuam no lugar
 | Menu com copiar, colar, duplicar e excluir | Botão direito do mouse |
 | Agrupar / Desagrupar os itens selecionados | Ctrl+G / Ctrl+Shift+G |
 | Editar um item só, dentro de um grupo | Duplo clique nele |
+| Travar / destravar (cadeado): o item não se move, não é editado nem apagado | Ctrl+Shift+L |
 | Duplicar elemento | Ctrl+D |
 | Excluir elemento | Delete |
 | Mover elemento | Setas (0,5 mm) · Shift+Setas (5 mm) |
