@@ -646,6 +646,19 @@ function renderTextProps(body, s) {
 }
 
 // ───── foto ─────
+const BORDERABLE = ['rect', 'rounded', 'circle', 'arch', 'scallop', 'heart'];
+const BORDER_OPTS = [['null', 'Sem borda'], ['gold', 'Dourada'], ['#FFFFFF', 'Branca'], ['#3A2417', 'Marrom'], ['#1F1A17', 'Preta']];
+const FILTER_OPTS = [['none', 'Original'], ['pb', 'Preto e branco'], ['sepia', 'Sépia (antigo)'], ['quente', 'Quente'], ['suave', 'Suave']];
+const isWatercolor = (f) => f === 'brush' || f === 'soft';
+const featherShow = (v) => (v === 50 ? '50 (padrão)' : String(v));
+const pct = (v) => Math.round(v * 100) + '%';
+
+// "procurador": ler mostra o valor do primeiro item; mudar muda em todos de uma vez
+const proxyAll = (list, defaults = {}) => new Proxy({}, {
+  get: (_, k) => list[0]?.[k] ?? defaults[k],
+  set: (_, k, v) => { for (const el of list) el[k] = v; return true; },
+});
+
 // fotos antigas não têm "feather": o controle mostra 50 (o visual de antes) até ser mexido
 // append que ignora itens vazios (null viraria o texto "null" na tela)
 const appendAll = (parent, ...kids) => parent.append(...kids.filter((k) => k != null && k !== false));
@@ -670,7 +683,7 @@ function renderPhotoProps(body, s) {
     icon: 'move', cls: state.panMode ? 'primary' : '',
     onClick: () => { state.panMode = !state.panMode; emit('select'); },
   });
-  const borderable = ['rect', 'rounded', 'circle', 'arch', 'scallop', 'heart'].includes(el.frame);
+  const borderable = BORDERABLE.includes(el.frame);
 
   appendAll(body,
     header('Foto', where(s)),
@@ -718,6 +731,8 @@ function renderPhotoProps(body, s) {
 function renderMultiProps(body) {
   const multi = getMulti();
   const texts = multi.filter((f) => f.el.type === 'text').map((f) => f.el);
+  const photos = multi.filter((f) => f.el.type === 'photo').map((f) => f.el);
+  const allPhotos = proxyAll(photos, { feather: 50, brightness: 1, contrast: 1, filter: 'none', borderWidth: 0.6 });
   const count = (t) => multi.filter((f) => f.el.type === t).length;
   const parts = [[count('text'), 'texto(s)'], [count('photo'), 'foto(s)'], [count('deco'), 'enfeite(s)']].filter(([n]) => n).map(([n, l]) => `${n} ${l}`);
   const alignBtn = (mode, ic, title) => h('button', { class: 'abtn', title, onClick: () => alignSelected(mode) }, icon(ic));
@@ -768,6 +783,25 @@ function renderMultiProps(body) {
         btn('Diminuir letra', { icon: 'minus', onClick: () => bump(-0.5) }),
         btn('Aumentar letra', { icon: 'plus', onClick: () => bump(0.5) })),
       colorInput(allTexts, 'color'),
+    ) : null,
+    photos.length ? section(`Fotos selecionadas (${photos.length})`,
+      field('Moldura', selectInput(allPhotos, 'frame', FRAMES.map((f) => [f.id, f.name]), (v) => {
+        if (PAPER_FRAMES.includes(v)) for (const p of photos) p.shadow = true;
+        setTimeout(renderRight, 0); // mostra as opções da moldura nova
+      })),
+      new Set(photos.map((p) => p.frame)).size > 1 ? h('p', { class: 'hint' }, 'As fotos estão com molduras diferentes. Escolher uma aqui aplica a mesma em todas.') : null,
+      photos.some((p) => isWatercolor(p.frame)) ? field('Difusão da borda', rangeInput(allPhotos, 'feather', { min: 0, max: 100, step: 1, show: featherShow })) : null,
+      photos.every((p) => BORDERABLE.includes(p.frame)) ? row(
+        field('Borda', selectInput(allPhotos, 'border', BORDER_OPTS)),
+        field('Espessura', numInput(allPhotos, 'borderWidth', { step: 0.1, min: 0, max: 5 })),
+      ) : null,
+      photos.some((p) => !isWatercolor(p.frame)) ? checkInput(allPhotos, 'shadow', 'Sombra suave') : null,
+      field('Filtro', selectInput(allPhotos, 'filter', FILTER_OPTS)),
+      row(
+        field('Brilho', rangeInput(allPhotos, 'brightness', { min: 0.6, max: 1.6, step: 0.02, show: pct })),
+        field('Contraste', rangeInput(allPhotos, 'contrast', { min: 0.6, max: 1.6, step: 0.02, show: pct })),
+      ),
+      h('p', { class: 'hint' }, 'Tudo aqui muda as fotos selecionadas de uma vez.'),
     ) : null,
     section(null,
       h('p', { class: 'hint' }, 'Arraste qualquer item selecionado para mover todos juntos. Setas do teclado também movem o grupo. Shift + clique tira ou põe um item na seleção.'),
