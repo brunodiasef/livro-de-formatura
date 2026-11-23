@@ -4,7 +4,7 @@ import {
   addSpread, duplicateSpread, deleteSpread, moveSpread, moveSpreadTo,duplicatePage, deletePage, movePage, insertPageAfter,
   setLayout, applyTemplate, undo, redo, canUndo, canRedo, newPage,
   saveSlotAsTemplate, deleteCustomTemplate, renameCustomTemplate, getMulti,
-  blockList, blockIndex, moveBlock, moveBlockTo,
+  blockList, blockIndex, moveBlock, moveBlockTo, deleteBlock,
 } from './state.js';
 import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
 import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER_FRAMES, textObstacles } from './render.js';
@@ -112,6 +112,16 @@ function buildTopbar() {
     ]);
   });
   // Ctrl+S salva no mesmo arquivo; Ctrl+Shift+S escolhe outro (funciona até digitando)
+  // Delete com um bloco selecionado (sem item): pergunta se quer apagar o bloco
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Delete' || e.ctrlKey || e.altKey || e.metaKey || document.querySelector('.modal-back')) return;
+    const tag = (document.activeElement?.tagName || '').toLowerCase();
+    if (['input', 'textarea', 'select'].includes(tag)) return;
+    const s = getSel();
+    if (!s || s.el || state.multi?.length >= 2 || s.page.layout !== 'halves') return;
+    e.preventDefault();
+    deleteBlockUI(s.page.id, s.slotIdx);
+  });
   // Alt+↑ / Alt+↓ com um bloco selecionado (sem item): sobe ou desce o aluno/professor
   window.addEventListener('keydown', (e) => {
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || document.querySelector('.modal-back')) return;
@@ -565,6 +575,28 @@ function moveBlockUI(pageId, slotIdx, dir) {
   if (r.ok) toast(`Movido para a ${blockWhere(r.pageIdx, r.slotIdx)}.`);
 }
 
+// pergunta como apagar: puxando os próximos blocos ou só esvaziando este espaço
+function deleteBlockUI(pageId, slotIdx, after) {
+  const i = blockIndex(pageId, slotIdx);
+  if (i < 0) { toast('Apagar bloco vale para páginas com 2 blocos (cima e baixo).', 'warn'); return; }
+  const b = blockList()[i];
+  const slot = b.page.slots[b.slotIdx];
+  const name = blockName(slot);
+  const done = (res) => {
+    if (res.locked) { toast('Não dá para apagar: este bloco (ou um dos seguintes) tem itens travados. Destrave antes.', 'warn'); return; }
+    if (res.ok) { toast(`Bloco "${name}" apagado. Ctrl+Z desfaz.`); after?.(); }
+  };
+  modal('Apagar bloco',
+    h('div', {},
+      h('p', {}, `Apagar o bloco `, h('b', {}, name), ` (${blockWhere(b.pageIdx, b.slotIdx)})? A foto, os textos e os enfeites dele somem.`),
+      h('p', { class: 'hint' }, 'Puxar os próximos: os blocos seguintes sobem uma casa (passando de página se precisar) e o último espaço do livro fica vazio. Só esvaziar: os outros não mudam de lugar.')),
+    [
+      { label: 'Cancelar', onClick: (c) => c() },
+      { label: 'Só esvaziar este espaço', onClick: (c) => { c(); done(deleteBlock(pageId, slotIdx, { shift: false })); } },
+      { label: 'Apagar e puxar os próximos', danger: true, icon: 'trash', onClick: (c) => { c(); done(deleteBlock(pageId, slotIdx, { shift: true })); } },
+    ]);
+}
+
 function blockThumb(b) {
   const k = 1.6, c = h('canvas', { class: 'block-thumb' });
   c.width = Math.round(PAGE_W * k); c.height = Math.round(HALF_H * k);
@@ -599,6 +631,7 @@ function openBlockOrder() {
         h('div', { class: 'block-btns' },
           h('button', { class: 'abtn', title: 'Subir', disabled: i === 0, onClick: () => move(i - 1) }, icon('up')),
           h('button', { class: 'abtn', title: 'Descer', disabled: i === all.length - 1, onClick: () => move(i + 1) }, icon('down'))),
+        h('button', { class: 'abtn danger', title: 'Apagar este bloco', onClick: () => deleteBlockUI(b.page.id, b.slotIdx, render) }, icon('trash')),
       );
       item.addEventListener('dragstart', (e) => { dragFrom = i; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); item.classList.add('dragging'); });
       item.addEventListener('dragend', () => { item.classList.remove('dragging'); list.querySelectorAll('.drop-before,.drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after')); });
@@ -668,6 +701,7 @@ function openContextMenu({ x, y, onItem }) {
     s?.page.layout === 'halves' ? { label: 'Subir este bloco', icon: 'up', keys: 'Alt+↑', onClick: () => moveBlockUI(s.page.id, s.slotIdx, -1) } : null,
     s?.page.layout === 'halves' ? { label: 'Descer este bloco', icon: 'down', keys: 'Alt+↓', onClick: () => moveBlockUI(s.page.id, s.slotIdx, 1) } : null,
     s?.page.layout === 'halves' ? { label: 'Organizar a ordem de todos…', icon: 'grid', onClick: openBlockOrder } : null,
+    s?.page.layout === 'halves' ? { label: 'Apagar este bloco…', icon: 'trash', keys: 'Delete', onClick: () => deleteBlockUI(s.page.id, s.slotIdx) } : null,
     s ? '-' : null,
     s ? { label: 'Travar a página inteira', icon: 'lock', onClick: () => lockAllOnPage(s.page) } : null,
     s ? { label: 'Destravar a página inteira', icon: 'unlock', onClick: () => unlockAllOnPage(s.page) } : null,
@@ -1065,6 +1099,7 @@ function renderPageProps(body) {
         btn('Subir', { icon: 'up', onClick: () => moveBlockUI(page.id, s.slotIdx, -1), title: 'Alt+↑' }),
         btn('Descer', { icon: 'down', onClick: () => moveBlockUI(page.id, s.slotIdx, 1), title: 'Alt+↓' })),
       btn('Organizar a ordem de todos…', { icon: 'grid', cls: 'block', onClick: openBlockOrder, title: 'Lista com todos os blocos do livro: arraste para mudar a ordem' }),
+      btn('Apagar bloco', { icon: 'trash', cls: 'danger block', onClick: () => deleteBlockUI(page.id, s.slotIdx), title: 'Apaga este aluno/professor (pergunta antes) · tecla Delete' }),
     ) : null,
     section('Fundo da página', bgWrap),
     section('Página',

@@ -284,6 +284,30 @@ export function moveBlockTo(from, to) {
   return { ok: true, pageIdx: dest.pageIdx, slotIdx: dest.slotIdx };
 }
 
+// Apaga o bloco. shift=true: os blocos seguintes sobem uma casa (como tirar alguém da lista)
+// e o último lugar do livro fica vazio. shift=false: só esvazia este espaço.
+export function deleteBlock(pageId, slotIdx, { shift = true } = {}) {
+  const list = blockList();
+  const i = list.findIndex((b) => b.page.id === pageId && b.slotIdx === slotIdx);
+  if (i < 0) return { ok: false };
+  const range = shift ? list.slice(i) : [list[i]];
+  if (range.some((b) => hasLocked(b.page.slots[b.slotIdx]))) return { ok: false, locked: true };
+  const empty = { template: list[i].page.slots[list[i].slotIdx].template, elements: [] };
+  if (shift) {
+    const contents = range.map((b) => b.page.slots[b.slotIdx]);
+    contents.shift();
+    contents.push(empty);
+    range.forEach((b, k) => { b.page.slots[b.slotIdx] = contents[k]; });
+  } else {
+    list[i].page.slots[list[i].slotIdx] = empty;
+  }
+  state.sel = { pageId, slot: slotIdx, elId: null };
+  commit();
+  emit('select');
+  const last = list[list.length - 1];
+  return { ok: true, lastPageIdx: last.pageIdx, lastSlotIdx: last.slotIdx };
+}
+
 export function moveBlock(pageId, slotIdx, dir) {
   const i = blockIndex(pageId, slotIdx);
   if (i < 0) return { ok: false };

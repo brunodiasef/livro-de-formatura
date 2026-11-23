@@ -211,6 +211,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgba(168, 129, 58
 .block-lock { display: flex; align-items: center; gap: 4px; }
 .block-lock svg { width: 12px; height: 12px; }
 .block-btns { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.abtn.danger { color: #B3261E; }
+.abtn.danger:hover { background: #FBE9E7; }
 .locked-note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin-bottom: 10px; border-radius: 9px; background: #EEEDF0; color: #45434D; }
 .locked-note svg { flex: none; width: 20px; height: 20px; margin-top: 1px; }
 .locked-note p { margin: 2px 0 0; font-size: 12px; line-height: 1.4; }
