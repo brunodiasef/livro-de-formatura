@@ -67,7 +67,7 @@ Ao trocar de modelo, a foto e os textos que você já inseriu continuam no lugar
    - **Texto em volta da foto:** clique no texto › **Contornar as fotos**. Estique a caixa de texto por cima da foto e o texto desvia do formato real da moldura (aquarela, círculo, coração…), linha por linha. **Distância da foto** ajusta o respiro. Com **Separar sílabas**, as palavras que não cabem são quebradas com hífen no lugar certo (con-se-quen-te-men-te). **Justificado** deixa o contorno mais elegante. Se o texto tiver quebras feitas à mão, o botão **Juntar as linhas que quebrei à mão** tira essas quebras.
    - **Mudar a ordem dos alunos/professores:** clique numa área vazia do bloco (aluno de cima ou de baixo) e use **Subir** / **Descer** no painel (ou **Alt+↑ / Alt+↓**, ou o botão direito). O bloco troca de lugar com o vizinho e passa de uma página para outra sozinho; o fundo das páginas não muda. **Organizar a ordem de todos…** abre a lista do livro inteiro para arrastar. **Apagar bloco** (ou tecla **Delete** com o bloco selecionado) pergunta se os próximos sobem uma casa ou se só esvazia aquele espaço.
 3. Monte a capa, os professores e a turma com os modelos de página inteira.
-4. **Exportar para impressão** → PDF A4. Na impressora, escolha **"Tamanho real / 100%"**.
+4. **Exportar para impressão** → PDF A4. Ao clicar em **Exportar…**, o app pergunta onde salvar e com que nome (no Chrome/Edge; ele lembra a última pasta). Na impressora, escolha **"Tamanho real / 100%"**.
 5. Para cortar, escolha a ordem das páginas:
    - **Sequencial:** cada folha tem as páginas 1–2, 3–4 e assim por diante.
    - **Cortar e empilhar:** corte a pilha inteira de uma vez e coloque a pilha da direita embaixo da da esquerda.

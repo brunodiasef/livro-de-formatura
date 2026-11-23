@@ -131,8 +131,17 @@ export function openExportDialog() {
   let busy = false;
   const dlg = modal('Exportar para impressão', body, [
     { label: 'Cancelar', onClick: (close) => { if (!busy) close(); } },
-    { label: 'Exportar', primary: true, icon: 'download', onClick: async () => {
+    { label: 'Exportar…', primary: true, icon: 'download', onClick: async () => {
       if (busy) return;
+      // 1º pergunta onde salvar (a janela só abre logo após o clique); depois gera o arquivo
+      let target;
+      try {
+        target = await chooseTarget(exportFileName(opts));
+      } catch (err) {
+        if (err?.name === 'AbortError') return; // cancelou a escolha: não exporta
+        console.error(err);
+        target = null;
+      }
       busy = true;
       Object.assign(st, { imposition: opts.imposition, marks: opts.marks, dpi: opts.dpi });
       commit();
@@ -142,8 +151,8 @@ export function openExportDialog() {
         await runExport(opts, (k, n, label) => {
           progress.querySelector('.bar').style.width = Math.round((k / n) * 100) + '%';
           progress.querySelector('span').textContent = label;
-        });
-        toast('Arquivo exportado! Veja a pasta Downloads.', 'ok');
+        }, (blob, name) => saveTo(target, blob, name));
+        toast(target ? `Arquivo salvo: "${target.name}".` : 'Arquivo exportado! Veja a pasta Downloads.', 'ok', 6000);
         dlg.close();
       } catch (err) {
         console.error(err);
@@ -156,7 +165,34 @@ export function openExportDialog() {
 
 const slug = (s) => (s || 'livro').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
 
-async function runExport(opts, onProgress) {
+function exportFileName(opts) {
+  const name = slug(state.book.title);
+  if (opts.format === 'png') return `${name}-folha-${state.spread + 1}.png`;
+  if (opts.format === 'a5') return `${name}-A5.pdf`;
+  return `${name}-A4-${opts.imposition}.pdf`;
+}
+
+// Chrome/Edge: abre a janela "Salvar como" (lembra a última pasta usada). Outros navegadores: null = pasta Downloads.
+async function chooseTarget(suggestedName) {
+  if (typeof window.showSaveFilePicker !== 'function') return null;
+  const png = suggestedName.endsWith('.png');
+  return window.showSaveFilePicker({
+    id: 'livro-exportar', // o navegador volta sempre na última pasta escolhida para exportar
+    suggestedName,
+    types: [png
+      ? { description: 'Imagem PNG', accept: { 'image/png': ['.png'] } }
+      : { description: 'Documento PDF', accept: { 'application/pdf': ['.pdf'] } }],
+  });
+}
+
+async function saveTo(target, blob, name) {
+  if (!target) { download(blob, name); return; }
+  const w = await target.createWritable();
+  await w.write(blob);
+  await w.close();
+}
+
+async function runExport(opts, onProgress, save) {
   const pxmm = opts.dpi / 25.4;
   const pages = state.book.pages;
   const name = slug(state.book.title);
@@ -168,7 +204,7 @@ async function runExport(opts, onProgress) {
     const [L, R] = spreadPages();
     const c = sheetCanvas({ page: L, idx: i * 2 }, { page: R, idx: i * 2 + 1 }, pxmm);
     const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
-    download(blob, `${name}-folha-${i + 1}.png`);
+    await save(blob, `${name}-folha-${i + 1}.png`);
     onProgress(1, 1, 'Pronto');
     return;
   }
@@ -184,7 +220,7 @@ async function runExport(opts, onProgress) {
       c.width = c.height = 0;
     }
     onProgress(1, 1, 'Salvando PDF…');
-    download(pdf.output('blob'), `${name}-A5.pdf`);
+    await save(pdf.output('blob'), `${name}-A5.pdf`);
     return;
   }
 
@@ -209,5 +245,5 @@ async function runExport(opts, onProgress) {
     }
   }
   onProgress(1, 1, 'Salvando PDF…');
-  download(pdf.output('blob'), `${name}-A4-${opts.imposition}.pdf`);
+  await save(pdf.output('blob'), `${name}-A4-${opts.imposition}.pdf`);
 }
