@@ -4,6 +4,7 @@ import {
   addSpread, duplicateSpread, deleteSpread, moveSpread, moveSpreadTo,duplicatePage, deletePage, movePage, insertPageAfter,
   setLayout, applyTemplate, undo, redo, canUndo, canRedo, newPage,
   saveSlotAsTemplate, deleteCustomTemplate, renameCustomTemplate, getMulti,
+  blockList, blockIndex, moveBlock, moveBlockTo,
 } from './state.js';
 import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
 import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER_FRAMES, textObstacles } from './render.js';
@@ -111,6 +112,16 @@ function buildTopbar() {
     ]);
   });
   // Ctrl+S salva no mesmo arquivo; Ctrl+Shift+S escolhe outro (funciona até digitando)
+  // Alt+↑ / Alt+↓ com um bloco selecionado (sem item): sobe ou desce o aluno/professor
+  window.addEventListener('keydown', (e) => {
+    if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || document.querySelector('.modal-back')) return;
+    const tag = (document.activeElement?.tagName || '').toLowerCase();
+    if (['input', 'textarea', 'select'].includes(tag)) return;
+    const s = getSel();
+    if (!s || s.el || state.multi?.length >= 2) return;
+    e.preventDefault();
+    moveBlockUI(s.page.id, s.slotIdx, e.key === 'ArrowUp' ? -1 : 1);
+  });
   window.addEventListener('keydown', (e) => {
     if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 's' || document.querySelector('.modal-back')) return;
     e.preventDefault();
@@ -536,6 +547,92 @@ function geometry(el) {
   );
 }
 
+// ───── ordem dos blocos (alunos / professores) ─────
+function blockName(slot) {
+  const named = slot.elements.find((e) => e.type === 'text' && e.role === 'name' && e.text.trim());
+  const first = named || slot.elements.find((e) => e.type === 'text' && e.text.trim() && e.text.trim().length <= 40);
+  return first ? first.text.trim().split('\n')[0] : '(sem nome)';
+}
+const blockWhere = (pageIdx, slotIdx) => `página ${pageIdx + 1}, ${slotIdx ? 'embaixo' : 'em cima'}`;
+
+function moveBlockUI(pageId, slotIdx, dir) {
+  const i = blockIndex(pageId, slotIdx);
+  const total = blockList().length;
+  if (i < 0) { toast('A ordem só vale para páginas com 2 alunos (cima e baixo).', 'warn'); return; }
+  if ((dir < 0 && i === 0) || (dir > 0 && i === total - 1)) { toast(dir < 0 ? 'Este já é o primeiro do livro.' : 'Este já é o último do livro.', 'warn'); return; }
+  const r = moveBlock(pageId, slotIdx, dir);
+  if (r.locked) { toast('Não dá para trocar: um dos dois blocos tem itens travados (cadeado).', 'warn'); return; }
+  if (r.ok) toast(`Movido para a ${blockWhere(r.pageIdx, r.slotIdx)}.`);
+}
+
+function blockThumb(b) {
+  const k = 1.6, c = h('canvas', { class: 'block-thumb' });
+  c.width = Math.round(PAGE_W * k); c.height = Math.round(HALF_H * k);
+  const ctx = c.getContext('2d');
+  ctx.scale(k, k);
+  ctx.translate(0, -HALF_H * b.slotIdx);
+  renderPage(ctx, b.page, b.pageIdx % 2 ? 'right' : 'left', { s: k });
+  return c;
+}
+
+function openBlockOrder() {
+  const list = h('div', { class: 'block-list' });
+  let dragFrom = -1;
+  const render = () => {
+    list.innerHTML = '';
+    const sel = getSel();
+    blockList().forEach((b, i, all) => {
+      const slot = b.page.slots[b.slotIdx];
+      const on = sel && sel.page.id === b.page.id && sel.slotIdx === b.slotIdx;
+      const move = (to) => {
+        const r = moveBlockTo(i, to);
+        if (r.locked) toast('Não dá para mover por cima de blocos com itens travados (cadeado).', 'warn');
+        render();
+      };
+      const item = h('div', { class: 'block-item' + (on ? ' on' : ''), draggable: 'true', title: 'Arraste para mudar a ordem' },
+        h('span', { class: 'block-n' }, i + 1),
+        blockThumb(b),
+        h('div', { class: 'block-txt' },
+          h('b', {}, blockName(slot)),
+          h('small', {}, blockWhere(b.pageIdx, b.slotIdx)),
+          slot.elements.some((e) => e.locked) ? h('small', { class: 'block-lock' }, icon('lock'), ' tem itens travados') : null),
+        h('div', { class: 'block-btns' },
+          h('button', { class: 'abtn', title: 'Subir', disabled: i === 0, onClick: () => move(i - 1) }, icon('up')),
+          h('button', { class: 'abtn', title: 'Descer', disabled: i === all.length - 1, onClick: () => move(i + 1) }, icon('down'))),
+      );
+      item.addEventListener('dragstart', (e) => { dragFrom = i; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); item.classList.add('dragging'); });
+      item.addEventListener('dragend', () => { item.classList.remove('dragging'); list.querySelectorAll('.drop-before,.drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after')); });
+      item.addEventListener('dragover', (e) => {
+        if (dragFrom < 0) return;
+        e.preventDefault();
+        const r = item.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
+        list.querySelectorAll('.drop-before,.drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after'));
+        item.classList.add(after ? 'drop-after' : 'drop-before');
+      });
+      item.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (dragFrom < 0) return;
+        const r = item.getBoundingClientRect(), ins = e.clientY > r.top + r.height / 2 ? i + 1 : i;
+        const from = dragFrom;
+        const to = ins > from ? ins - 1 : ins;
+        dragFrom = -1;
+        if (to !== from) {
+          const res = moveBlockTo(from, to);
+          if (res.locked) toast('Não dá para mover por cima de blocos com itens travados (cadeado).', 'warn');
+        }
+        render();
+      });
+      list.append(item);
+    });
+  };
+  render();
+  modal('Ordem dos alunos e professores',
+    h('div', {},
+      h('p', { class: 'hint' }, 'Arraste um bloco para cima ou para baixo (ou use as setas). Os outros andam uma casa e passam de uma página para outra sozinhos. O fundo das páginas não muda. Páginas inteiras (capa, turma…) não entram na lista.'),
+      list),
+    [{ label: 'Pronto', primary: true, onClick: (c) => c() }], { wide: true });
+}
+
 // menu do botão direito na folha
 function openContextMenu({ x, y, onItem }) {
   const c = clipboardInfo();
@@ -566,6 +663,10 @@ function openContextMenu({ x, y, onItem }) {
   ].filter(Boolean) : [
     { label: pasteLabel, icon: 'plus', keys: 'Ctrl+V', disabled: !c, onClick: pasteClipboard },
     s ? { label: s.page.layout === 'halves' ? 'Copiar este aluno inteiro' : 'Copiar a página inteira', icon: 'grid', keys: 'Ctrl+C', onClick: () => copySelected({ whole: true }) } : null,
+    s?.page.layout === 'halves' ? '-' : null,
+    s?.page.layout === 'halves' ? { label: 'Subir este bloco', icon: 'up', keys: 'Alt+↑', onClick: () => moveBlockUI(s.page.id, s.slotIdx, -1) } : null,
+    s?.page.layout === 'halves' ? { label: 'Descer este bloco', icon: 'down', keys: 'Alt+↓', onClick: () => moveBlockUI(s.page.id, s.slotIdx, 1) } : null,
+    s?.page.layout === 'halves' ? { label: 'Organizar a ordem de todos…', icon: 'grid', onClick: openBlockOrder } : null,
   ].filter(Boolean);
   menu({ x, y }, items);
 }
@@ -944,6 +1045,13 @@ function renderPageProps(body) {
         btn('Texto', { icon: 'text', onClick: addText }),
         btn('Foto', { icon: 'image', onClick: addPhoto })),
     ),
+    page.layout === 'halves' ? section('Ordem dos alunos / professores',
+      h('p', { class: 'muted' }, `Este bloco é o ${blockIndex(page.id, s.slotIdx) + 1}º de ${blockList().length}. Subir e descer trocam de lugar com o vizinho, inclusive passando para outra página.`),
+      h('div', { class: 'actions' },
+        btn('Subir', { icon: 'up', onClick: () => moveBlockUI(page.id, s.slotIdx, -1), title: 'Alt+↑' }),
+        btn('Descer', { icon: 'down', onClick: () => moveBlockUI(page.id, s.slotIdx, 1), title: 'Alt+↓' })),
+      btn('Organizar a ordem de todos…', { icon: 'grid', cls: 'block', onClick: openBlockOrder, title: 'Lista com todos os blocos do livro: arraste para mudar a ordem' }),
+    ) : null,
     lockedCount ? section('Itens travados',
       h('div', { class: 'locked-note' }, icon('lock'), h('p', {}, `${lockedCount === 1 ? '1 item travado' : lockedCount + ' itens travados'} nesta página. Clique num deles para destravar só ele, ou destrave todos aqui.`)),
       btn('Destravar todos desta página', { icon: 'unlock', cls: 'block', onClick: () => unlockAllOnPage(page) }),

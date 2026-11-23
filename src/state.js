@@ -250,6 +250,46 @@ export function moveSpreadTo(from, to) {
   return { padded };
 }
 
+// ───────── ordem dos blocos (aluno/professor de cima ou de baixo) ─────────
+// Todas as metades das páginas de 2 blocos, na ordem de leitura do livro.
+// Páginas inteiras (capa, turma…) ficam de fora: os blocos passam por cima delas.
+export function blockList() {
+  const out = [];
+  state.book.pages.forEach((p, pi) => {
+    if (p.layout === 'halves') p.slots.forEach((_, si) => out.push({ page: p, pageIdx: pi, slotIdx: si }));
+  });
+  return out;
+}
+export const blockIndex = (pageId, slotIdx) => blockList().findIndex((b) => b.page.id === pageId && b.slotIdx === slotIdx);
+const hasLocked = (slot) => slot.elements.some((e) => e.locked);
+
+// Move o bloco da posição `from` para `to` (índices de blockList); os do meio andam uma casa.
+// O fundo das páginas fica onde está: só o conteúdo dos blocos muda de lugar.
+export function moveBlockTo(from, to) {
+  const list = blockList();
+  if (from < 0 || from >= list.length) return { ok: false };
+  to = Math.max(0, Math.min(list.length - 1, to));
+  if (to === from) return { ok: false };
+  const lo = Math.min(from, to), hi = Math.max(from, to);
+  for (let k = lo; k <= hi; k++) if (hasLocked(list[k].page.slots[list[k].slotIdx])) return { ok: false, locked: true };
+  const contents = list.map((b) => b.page.slots[b.slotIdx]);
+  const [moved] = contents.splice(from, 1);
+  contents.splice(to, 0, moved);
+  list.forEach((b, k) => { b.page.slots[b.slotIdx] = contents[k]; });
+  const dest = list[to];
+  state.spread = Math.floor(dest.pageIdx / 2);
+  state.sel = { pageId: dest.page.id, slot: dest.slotIdx, elId: null };
+  commit();
+  emit('select');
+  return { ok: true, pageIdx: dest.pageIdx, slotIdx: dest.slotIdx };
+}
+
+export function moveBlock(pageId, slotIdx, dir) {
+  const i = blockIndex(pageId, slotIdx);
+  if (i < 0) return { ok: false };
+  return moveBlockTo(i, i + dir);
+}
+
 export function duplicateSpread(i) {
   const pages = state.book.pages.slice(i * 2, i * 2 + 2).map(clonePage);
   state.book.pages.splice(i * 2 + 2, 0, ...pages);
