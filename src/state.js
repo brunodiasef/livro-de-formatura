@@ -212,12 +212,27 @@ export function deletePage(idx) {
   commit();
 }
 
-export function movePage(idx, dir) {
-  const j = idx + dir, pages = state.book.pages;
-  if (j < 0 || j >= pages.length) return;
-  [pages[idx], pages[j]] = [pages[j], pages[idx]];
-  state.spread = Math.floor(j / 2);
+// Move a página da posição `from` para `to`; as do meio andam uma casa.
+// Andar uma casa: direita → esquerda da mesma folha → direita da folha anterior (e quem estava lá desce).
+export function movePageTo(from, to) {
+  const pages = state.book.pages;
+  if (from < 0 || from >= pages.length) return { ok: false };
+  to = Math.max(0, Math.min(pages.length - 1, to));
+  if (to === from) return { ok: false };
+  const [p] = pages.splice(from, 1);
+  pages.splice(to, 0, p);
+  state.spread = Math.floor(to / 2);
+  state.sel = { pageId: p.id, slot: state.sel?.pageId === p.id ? state.sel.slot : 0, elId: null };
   commit();
+  emit('select');
+  return { ok: true, idx: to };
+}
+
+// sempre pela identidade da página (não pela posição), para cliques seguidos moverem a mesma página
+export function movePage(pageId, dir) {
+  const i = pageIndex(pageId);
+  if (i < 0) return { ok: false };
+  return movePageTo(i, i + dir);
 }
 
 export function moveSpread(i, dir) {
@@ -270,8 +285,7 @@ export function moveBlockTo(from, to) {
   if (from < 0 || from >= list.length) return { ok: false };
   to = Math.max(0, Math.min(list.length - 1, to));
   if (to === from) return { ok: false };
-  const lo = Math.min(from, to), hi = Math.max(from, to);
-  for (let k = lo; k <= hi; k++) if (hasLocked(list[k].page.slots[list[k].slotIdx])) return { ok: false, locked: true };
+  // mudar a ordem não altera o conteúdo: blocos travados também podem trocar de lugar
   const contents = list.map((b) => b.page.slots[b.slotIdx]);
   const [moved] = contents.splice(from, 1);
   contents.splice(to, 0, moved);

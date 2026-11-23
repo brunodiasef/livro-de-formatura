@@ -4,7 +4,7 @@ import {
   addSpread, duplicateSpread, deleteSpread, moveSpread, moveSpreadTo,duplicatePage, deletePage, movePage, insertPageAfter,
   setLayout, applyTemplate, undo, redo, canUndo, canRedo, newPage,
   saveSlotAsTemplate, deleteCustomTemplate, renameCustomTemplate, getMulti,
-  blockList, blockIndex, moveBlock, moveBlockTo, deleteBlock,
+  blockList, blockIndex, moveBlock, moveBlockTo, deleteBlock, movePageTo,
 } from './state.js';
 import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
 import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER_FRAMES, textObstacles } from './render.js';
@@ -597,6 +597,77 @@ function deleteBlockUI(pageId, slotIdx, after) {
     ]);
 }
 
+// ───── ordem das páginas ─────
+const pageWhere = (i) => `página ${i + 1} (${i % 2 ? 'direita' : 'esquerda'} da folha ${Math.floor(i / 2) + 1})`;
+
+function movePageUI(pageId, dir) {
+  const i = pageIndex(pageId), n = state.book.pages.length;
+  if ((dir < 0 && i === 0) || (dir > 0 && i === n - 1)) { toast(dir < 0 ? 'Esta já é a primeira página.' : 'Esta já é a última página.', 'warn'); return; }
+  const r = movePage(pageId, dir);
+  if (r.ok) toast(`Agora é a ${pageWhere(r.idx)}.`);
+}
+
+function pageThumb(page, i) {
+  const k = 0.9, c = h('canvas', { class: 'page-thumb' });
+  c.width = Math.round(PAGE_W * k); c.height = Math.round(PAGE_H * k);
+  const ctx = c.getContext('2d');
+  ctx.scale(k, k);
+  renderPage(ctx, page, i % 2 ? 'right' : 'left', { s: k });
+  return c;
+}
+
+function pageLabel(page) {
+  if (page.layout === 'halves') return page.slots.map(blockName).join(' · ');
+  return getTemplate(page.slots[0]?.template).name || 'Página inteira';
+}
+
+function openPageOrder() {
+  const list = h('div', { class: 'block-list' });
+  let dragFrom = -1;
+  const render = () => {
+    list.innerHTML = '';
+    const sel = getSel();
+    state.book.pages.forEach((p, i, all) => {
+      const move = (to) => { movePageTo(i, to); render(); };
+      const item = h('div', { class: 'block-item page-item' + (sel?.page.id === p.id ? ' on' : ''), draggable: 'true', title: 'Arraste para mudar a ordem' },
+        h('span', { class: 'block-n' }, i + 1),
+        pageThumb(p, i),
+        h('div', { class: 'block-txt' },
+          h('b', {}, pageLabel(p)),
+          h('small', {}, `${i % 2 ? 'direita' : 'esquerda'} da folha ${Math.floor(i / 2) + 1}`)),
+        h('div', { class: 'block-btns' },
+          h('button', { class: 'abtn', title: 'Mover para trás', disabled: i === 0, onClick: () => move(i - 1) }, icon('up')),
+          h('button', { class: 'abtn', title: 'Mover para frente', disabled: i === all.length - 1, onClick: () => move(i + 1) }, icon('down'))),
+      );
+      item.addEventListener('dragstart', (e) => { dragFrom = i; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); item.classList.add('dragging'); });
+      item.addEventListener('dragend', () => { item.classList.remove('dragging'); list.querySelectorAll('.drop-before,.drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after')); });
+      item.addEventListener('dragover', (e) => {
+        if (dragFrom < 0) return;
+        e.preventDefault();
+        const r = item.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
+        list.querySelectorAll('.drop-before,.drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after'));
+        item.classList.add(after ? 'drop-after' : 'drop-before');
+      });
+      item.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (dragFrom < 0) return;
+        const r = item.getBoundingClientRect(), ins = e.clientY > r.top + r.height / 2 ? i + 1 : i;
+        const from = dragFrom, to = ins > from ? ins - 1 : ins;
+        dragFrom = -1;
+        if (to !== from) movePageTo(from, to);
+        render();
+      });
+      list.append(item);
+    });
+  };
+  render();
+  modal('Ordem das páginas',
+    h('div', {},
+      h('p', { class: 'hint' }, 'Arraste uma página para cima ou para baixo (ou use as setas). As outras andam uma casa: a página da direita vira esquerda, a da esquerda passa para a folha anterior, e assim por diante.'),
+      list),
+    [{ label: 'Pronto', primary: true, onClick: (c) => c() }], { wide: true });
+}
+
 function blockThumb(b) {
   const k = 1.6, c = h('canvas', { class: 'block-thumb' });
   c.width = Math.round(PAGE_W * k); c.height = Math.round(HALF_H * k);
@@ -702,6 +773,10 @@ function openContextMenu({ x, y, onItem }) {
     s?.page.layout === 'halves' ? { label: 'Descer este bloco', icon: 'down', keys: 'Alt+↓', onClick: () => moveBlockUI(s.page.id, s.slotIdx, 1) } : null,
     s?.page.layout === 'halves' ? { label: 'Organizar a ordem de todos…', icon: 'grid', onClick: openBlockOrder } : null,
     s?.page.layout === 'halves' ? { label: 'Apagar este bloco…', icon: 'trash', keys: 'Delete', onClick: () => deleteBlockUI(s.page.id, s.slotIdx) } : null,
+    s ? '-' : null,
+    s ? { label: 'Mover a página para trás', icon: 'left', onClick: () => movePageUI(s.page.id, -1) } : null,
+    s ? { label: 'Mover a página para frente', icon: 'right', onClick: () => movePageUI(s.page.id, 1) } : null,
+    s ? { label: 'Organizar a ordem das páginas…', icon: 'grid', onClick: openPageOrder } : null,
     s ? '-' : null,
     s ? { label: 'Travar a página inteira', icon: 'lock', onClick: () => lockAllOnPage(s.page) } : null,
     s ? { label: 'Destravar a página inteira', icon: 'unlock', onClick: () => unlockAllOnPage(s.page) } : null,
@@ -1103,15 +1178,18 @@ function renderPageProps(body) {
     ) : null,
     section('Fundo da página', bgWrap),
     section('Página',
+      h('p', { class: 'muted' }, `É a página ${pageIdx + 1} de ${state.book.pages.length}. Mover anda uma casa: da direita para a esquerda da mesma folha, depois para a folha anterior (e quem estava lá desce).`),
       h('div', { class: 'actions' },
-        btn('Duplicar', { icon: 'copy', onClick: () => duplicatePage(pageIdx) }),
-        btn('Inserir depois', { icon: 'plus', onClick: () => insertPageAfter(pageIdx) }),
+        btn('Mover para trás', { icon: 'left', onClick: () => movePageUI(page.id, -1), title: 'Uma página para trás' }),
+        btn('Mover para frente', { icon: 'right', onClick: () => movePageUI(page.id, 1), title: 'Uma página para frente' }),
       ),
+      btn('Organizar a ordem das páginas…', { icon: 'grid', cls: 'block', onClick: openPageOrder, title: 'Lista com todas as páginas: arraste para mudar a ordem' }),
       h('div', { class: 'actions' },
-        btn('Mover', { icon: 'left', onClick: () => movePage(pageIdx, -1), title: 'Mover para a página anterior' }),
-        btn('Mover', { icon: 'right', onClick: () => movePage(pageIdx, 1), title: 'Mover para a próxima página' }),
+        btn('Duplicar', { icon: 'copy', onClick: () => duplicatePage(pageIndex(page.id)) }),
+        btn('Inserir depois', { icon: 'plus', onClick: () => insertPageAfter(pageIndex(page.id)) }),
         btn('Excluir', { icon: 'trash', cls: 'danger', onClick: async () => {
-          if (await confirmBox('Excluir página', `Excluir a página ${pageIdx + 1}? As páginas seguintes sobem uma posição.`, 'Excluir', true)) deletePage(pageIdx);
+          const i = pageIndex(page.id);
+          if (await confirmBox('Excluir página', `Excluir a página ${i + 1}? As páginas seguintes sobem uma posição.`, 'Excluir', true)) deletePage(i);
         } }),
       ),
     ),

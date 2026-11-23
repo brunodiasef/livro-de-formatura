@@ -204,6 +204,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgba(168, 129, 58
 .block-item.drop-before::before { top: -5px; }
 .block-item.drop-after::after { bottom: -5px; }
 .block-n { width: 26px; text-align: center; font-weight: 700; color: var(--muted); flex: none; }
+.page-thumb { width: 64px; height: auto; border-radius: 3px; border: 1px solid rgba(0, 0, 0, .08); flex: none; }
 .block-thumb { width: 120px; height: auto; border-radius: 4px; border: 1px solid rgba(0, 0, 0, .08); flex: none; }
 .block-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .block-txt b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
