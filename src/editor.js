@@ -433,7 +433,16 @@ export function toggleLockSelected() {
 export function unlockAllOnPage(page) {
   let n = 0;
   for (const s of page.slots) for (const e of s.elements) if (e.locked) { delete e.locked; n++; }
-  if (n) { commit(); toast(`Destravado: ${n === 1 ? '1 item' : n + ' itens'} desta página.`); }
+  if (n) { commit(); toast(`Página ${pageIndex(page.id) + 1} destravada (${n === 1 ? '1 item' : n + ' itens'}).`); }
+  else toast('Nada travado nesta página.');
+}
+// trava todos os itens da página de uma vez (fotos, textos e enfeites dos dois blocos)
+export function lockAllOnPage(page) {
+  let n = 0;
+  for (const s of page.slots) for (const e of s.elements) if (!e.locked) { e.locked = true; n++; }
+  if (state.sel?.elId && page.slots.some((s) => s.elements.some((e) => e.id === state.sel.elId))) state.sel = { ...state.sel, elId: null };
+  if (n) { commit(); emit('select'); toast(`Página ${pageIndex(page.id) + 1} travada: ninguém consegue mexer até destravar.`); }
+  else toast('Esta página já está toda travada.');
 }
 
 // ids selecionados hoje (um ou vários)

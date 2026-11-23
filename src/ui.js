@@ -8,7 +8,7 @@ import {
 } from './state.js';
 import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
 import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER_FRAMES, textObstacles } from './render.js';
-import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo, groupSelected, ungroupSelected, isOneGroup, lockSelected, unlockAllOnPage } from './editor.js';
+import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo, groupSelected, ungroupSelected, isOneGroup, lockSelected, unlockAllOnPage, lockAllOnPage } from './editor.js';
 import { FONTS, fontWeights, fontHasItalic, WEIGHT_NAMES } from './fonts.js';
 import { BACKGROUNDS, FRAMES, DECOS, SWATCHES, PAGE_W, PAGE_H, HALF_H, DPI_MIN, DPI_GOOD } from './constants.js';
 import { h, uid, randSeed, debounce, clone } from './util.js';
@@ -641,6 +641,7 @@ function openContextMenu({ x, y, onItem }) {
   if (onItem && !many && s?.el?.locked) {
     menu({ x, y }, [
       { label: 'Destravar', icon: 'unlock', keys: 'Ctrl+Shift+L', onClick: () => lockSelected(false) },
+      { label: 'Destravar a página inteira', icon: 'unlock', onClick: () => unlockAllOnPage(s.page) },
       '-',
       { label: 'Copiar', icon: 'copy', keys: 'Ctrl+C', onClick: () => copySelected() },
       { label: 'Duplicar', icon: 'copy', keys: 'Ctrl+D', onClick: duplicateSelected },
@@ -667,6 +668,9 @@ function openContextMenu({ x, y, onItem }) {
     s?.page.layout === 'halves' ? { label: 'Subir este bloco', icon: 'up', keys: 'Alt+↑', onClick: () => moveBlockUI(s.page.id, s.slotIdx, -1) } : null,
     s?.page.layout === 'halves' ? { label: 'Descer este bloco', icon: 'down', keys: 'Alt+↓', onClick: () => moveBlockUI(s.page.id, s.slotIdx, 1) } : null,
     s?.page.layout === 'halves' ? { label: 'Organizar a ordem de todos…', icon: 'grid', onClick: openBlockOrder } : null,
+    s ? '-' : null,
+    s ? { label: 'Travar a página inteira', icon: 'lock', onClick: () => lockAllOnPage(s.page) } : null,
+    s ? { label: 'Destravar a página inteira', icon: 'unlock', onClick: () => unlockAllOnPage(s.page) } : null,
   ].filter(Boolean);
   menu({ x, y }, items);
 }
@@ -682,6 +686,7 @@ function renderLockedProps(body, s) {
         h('b', {}, 'Travado'),
         h('p', {}, 'Este item não pode ser movido, redimensionado, girado, editado nem apagado. Destrave para mexer de novo.'))),
       btn('Destravar', { icon: 'unlock', cls: 'primary block', onClick: () => lockSelected(false), title: 'Ctrl+Shift+L' }),
+      btn('Destravar a página inteira', { icon: 'unlock', cls: 'block', onClick: () => unlockAllOnPage(s.page) }),
     ),
     section(null,
       h('p', { class: 'hint' }, 'Dá para copiar ou duplicar: a cópia sai destravada.'),
@@ -1009,6 +1014,7 @@ function renderPageProps(body) {
   const { page, pageIdx } = s;
   const tmpl = getTemplate(s.slot.template);
   const lockedCount = page.slots.reduce((n, sl) => n + sl.elements.filter((e) => e.locked).length, 0);
+  const totalCount = page.slots.reduce((n, sl) => n + sl.elements.length, 0);
   const bgWrap = h('div', { class: 'bgs' });
   for (const b of BACKGROUNDS) {
     bgWrap.append(h('button', {
@@ -1018,6 +1024,14 @@ function renderPageProps(body) {
   }
   appendAll(body,
     header(`Página ${pageIdx + 1}`, `${pageIdx % 2 ? 'direita' : 'esquerda'} da folha ${Math.floor(pageIdx / 2) + 1}`),
+    section('Cadeado da página',
+      lockedCount ? h('div', { class: 'locked-note' }, icon('lock'), h('p', {}, lockedCount >= totalCount
+        ? 'Página inteira travada: nada se move, nem é editado ou apagado.'
+        : `${lockedCount} de ${totalCount} itens travados nesta página.`)) : null,
+      h('div', { class: 'actions' },
+        btn('Travar página', { icon: 'lock', cls: lockedCount < totalCount ? 'primary' : '', disabled: !totalCount || lockedCount >= totalCount, onClick: () => lockAllOnPage(page), title: 'Trava todas as fotos, textos e enfeites desta página' }),
+        btn('Destravar página', { icon: 'unlock', disabled: !lockedCount, onClick: () => unlockAllOnPage(page), title: 'Destrava tudo desta página' })),
+    ),
     section('Divisão da página',
       segInput({ get layout() { return page.layout; }, set layout(v) { setLayout(page, v); } }, 'layout', [
         ['halves', null, '2 alunos por página (um em cima, um embaixo)', '2 alunos'],
@@ -1051,10 +1065,6 @@ function renderPageProps(body) {
         btn('Subir', { icon: 'up', onClick: () => moveBlockUI(page.id, s.slotIdx, -1), title: 'Alt+↑' }),
         btn('Descer', { icon: 'down', onClick: () => moveBlockUI(page.id, s.slotIdx, 1), title: 'Alt+↓' })),
       btn('Organizar a ordem de todos…', { icon: 'grid', cls: 'block', onClick: openBlockOrder, title: 'Lista com todos os blocos do livro: arraste para mudar a ordem' }),
-    ) : null,
-    lockedCount ? section('Itens travados',
-      h('div', { class: 'locked-note' }, icon('lock'), h('p', {}, `${lockedCount === 1 ? '1 item travado' : lockedCount + ' itens travados'} nesta página. Clique num deles para destravar só ele, ou destrave todos aqui.`)),
-      btn('Destravar todos desta página', { icon: 'unlock', cls: 'block', onClick: () => unlockAllOnPage(page) }),
     ) : null,
     section('Fundo da página', bgWrap),
     section('Página',
