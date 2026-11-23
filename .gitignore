@@ -4,3 +4,6 @@ Livro de Formatura.html
 referencia-qwen.webp
 .claude
 *.livro.json
+
+# relatórios de revisão (têm textos dos alunos)
+revisao-*.pdf
