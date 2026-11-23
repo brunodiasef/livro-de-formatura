@@ -3,6 +3,7 @@ import { loadFonts } from './fonts.js';
 import { loadAllFromDb, removeUnused } from './images.js';
 import { state, newBook, loadSavedBook, resetHistory, usedImageIds } from './state.js';
 import { initUI } from './ui.js';
+import { loadFileHandle } from './project.js';
 
 async function boot() {
   const root = document.getElementById('app');
@@ -14,6 +15,7 @@ async function boot() {
   state.book = book;
   resetHistory();
   removeUnused(usedImageIds(book)).catch(() => {});
+  await loadFileHandle(); // lembra em qual arquivo .livro.json o "Salvar" grava
   initUI(root);
 }
 

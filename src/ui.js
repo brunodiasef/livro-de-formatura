@@ -14,7 +14,7 @@ import { h, uid, randSeed, debounce, clone } from './util.js';
 import { btn, icon, toast, modal, confirmBox } from './ui-kit.js';
 import { openExportDialog } from './export.js';
 import { openBatchDialog } from './batch.js';
-import { newProject, saveProjectFile, openProjectFile } from './project.js';
+import { newProject, saveProject, saveProjectAs, pickAndOpenProject, currentFileName } from './project.js';
 
 let rightTab = 'templates';
 let rightEl, leftList, leftStats, undoBtn, redoBtn, saveStatus, titleInput, zoomLabel;
@@ -51,7 +51,7 @@ export function initUI(root) {
       if (ta) { ta.focus(); ta.select(); }
     } else if (type === 'contextmenu') {
       openContextMenu(info);
-    } else if (type === 'saved') {
+    } else if (type === 'saved' || type === 'file') {
       refreshTop();
     } else if (type === 'view') {
       zoomLabel.textContent = Math.round((getZoom() / 3.78) * 100) + '%';
@@ -99,12 +99,23 @@ function buildTopbar() {
     label: d.name, badge: d.isNew ? 'novo' : null, preview: () => decoPreview(d), onClick: () => addDeco(d),
   }))));
   const projBtn = btn('Projeto', { icon: 'folder' });
-  projBtn.addEventListener('click', () => menu(projBtn, [
-    { label: 'Salvar cópia do projeto (.livro.json)…', icon: 'save', onClick: saveProjectFile },
-    { label: 'Abrir projeto salvo…', icon: 'folder', onClick: pickProjectFile },
-    '-',
-    { label: 'Novo projeto (começar do zero)', icon: 'file', onClick: newProject },
-  ]));
+  projBtn.addEventListener('click', () => {
+    const name = currentFileName();
+    menu(projBtn, [
+      { label: name ? `Salvar em "${name}"` : 'Salvar…', icon: 'save', keys: 'Ctrl+S', onClick: saveProject },
+      { label: 'Salvar como…', icon: 'save', keys: 'Ctrl+Shift+S', onClick: saveProjectAs },
+      '-',
+      { label: 'Abrir projeto salvo…', icon: 'folder', onClick: pickAndOpenProject },
+      '-',
+      { label: 'Novo projeto (começar do zero)', icon: 'file', onClick: newProject },
+    ]);
+  });
+  // Ctrl+S salva no mesmo arquivo; Ctrl+Shift+S escolhe outro (funciona até digitando)
+  window.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 's' || document.querySelector('.modal-back')) return;
+    e.preventDefault();
+    if (e.shiftKey) saveProjectAs(); else saveProject();
+  });
   const guidesBtn = btn('Guias', { icon: 'guides', cls: state.guides ? 'on' : '', title: 'Mostrar margens de segurança e linha de corte' });
   guidesBtn.addEventListener('click', () => { state.guides = !state.guides; guidesBtn.classList.toggle('on', state.guides); emit('view'); });
 
@@ -125,17 +136,15 @@ function buildTopbar() {
   );
 }
 
-function pickProjectFile() {
-  const inp = h('input', { type: 'file', accept: '.json,application/json' });
-  inp.addEventListener('change', () => inp.files?.[0] && openProjectFile(inp.files[0]));
-  inp.click();
-}
 
 function refreshTop() {
   undoBtn.disabled = !canUndo();
   redoBtn.disabled = !canRedo();
   saveStatus.textContent = state.saved ? '✓ Salvo' : 'Salvando…';
-  saveStatus.title = 'O projeto é salvo automaticamente neste computador (no navegador). Use Projeto › Salvar cópia para ter um backup.';
+  const fname = currentFileName();
+  saveStatus.title = 'O projeto é salvo automaticamente neste navegador. ' + (fname
+    ? `Ctrl+S grava também no arquivo "${fname}".`
+    : 'Para guardar num arquivo (backup ou outro PC), use Projeto › Salvar… (Ctrl+S).');
   if (document.activeElement !== titleInput) titleInput.value = state.book.title;
 }
 

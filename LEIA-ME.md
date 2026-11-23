@@ -6,7 +6,7 @@ Aplicativo para montar o livro de formatura com modelos prontos, fotos, textos e
 
 - **Na web:** https://brunodiasef.github.io/livro-de-formatura/ (use no computador, com Chrome ou Edge). O site é atualizado sozinho a cada envio para a branch `main`. As fotos e o projeto ficam só no navegador de quem usa; nada vai para o GitHub.
 - **Sem internet:** dê duplo clique em **`Livro de Formatura.html`**. Ele abre no navegador (Chrome ou Edge) e funciona sem internet.
-- O projeto é salvo sozinho no navegador deste computador. Para ter um backup ou levar para outro PC, use **Projeto › Salvar cópia do projeto**. O arquivo `.livro.json` inclui as fotos.
+- O projeto é salvo sozinho no navegador deste computador. Para guardar num arquivo (backup ou outro PC), use **Projeto › Salvar…** (**Ctrl+S**). Na primeira vez você escolhe o nome e a pasta; depois, **Ctrl+S** regrava sempre o mesmo arquivo. **Salvar como…** (**Ctrl+Shift+S**) grava num arquivo novo. Ao **abrir** um projeto, o Ctrl+S passa a gravar nele mesmo. O arquivo `.livro.json` inclui as fotos. (Isso funciona no Chrome e no Edge; em outros navegadores cada salvamento vai para a pasta Downloads.)
 - **Para alterar o código:** rode `npm run dev`. Depois de mexer, rode `npm run build` para atualizar o `Livro de Formatura.html`.
 
 > O projeto aberto pelo `npm run dev` (endereço localhost) e o aberto pelo arquivo `.html` ficam guardados em lugares diferentes do navegador. Para levar o trabalho de um para o outro, use Salvar cópia / Abrir projeto.
