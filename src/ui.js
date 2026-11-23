@@ -654,6 +654,7 @@ function renderTextProps(body, s) {
   appendAll(body,
     header('Texto', where(s)),
     section(null, ta, fitInfo),
+    wrapSection(el, s),
     section('Fonte',
       field('Família', fontSel),
       row(field('Peso', weightSel), field('Tamanho (pt)', numInput(el, 'size', { step: 0.5, min: 4, max: 120 }))),
@@ -672,7 +673,14 @@ function renderTextProps(body, s) {
       field('Entre linhas', rangeInput(el, 'lineHeight', { min: 0.8, max: 2.5, step: 0.05, show: (v) => fmt(v, 2) })),
       field('Entre letras', rangeInput(el, 'tracking', { min: -50, max: 600, step: 10, show: (v) => v })),
     ),
-    section('Contornar fotos e separar sílabas',
+    geometry(el),
+    elementActions(),
+  );
+}
+
+// opções de contorno de fotos e sílabas (ficam logo abaixo da caixa do texto)
+function wrapSection(el, s) {
+  return section('Contornar fotos e separar sílabas',
       checkInput(el, 'wrapPhotos', 'Contornar as fotos (o texto desvia do formato da foto)', () => {
         if (el.wrapPhotos && el.hyphenate === undefined) el.hyphenate = true;
         setTimeout(renderRight, 0);
@@ -695,9 +703,6 @@ function renderTextProps(body, s) {
           setTimeout(renderRight, 0);
         },
       }) : null,
-    ),
-    geometry(el),
-    elementActions(),
   );
 }
 
