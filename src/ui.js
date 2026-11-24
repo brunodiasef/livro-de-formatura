@@ -276,6 +276,8 @@ const thumbCache = new Map();
 
 function buildLeft(left) {
   leftList = h('div', { class: 'spread-list' });
+  // enquanto uma folha é arrastada com o dedo, a lista não rola junto
+  leftList.addEventListener('touchmove', (e) => { if (document.body.classList.contains('sheet-dragging')) e.preventDefault(); }, { passive: false });
   leftStats = h('div', { class: 'stats' });
   left.append(
     sheetHandle(), // só aparece no celular
@@ -374,11 +376,15 @@ function spreadCard(i) {
 // Arrastar uma folha na lista para mudar a ordem (como os slides do PowerPoint)
 function startCardDrag(e, from, card) {
   if (e.button !== 0 || e.target.closest('button')) return;
-  e.preventDefault();
+  // celular: arrastar o dedo rola a lista; segurar o dedo ~meio segundo pega a folha para mudar a ordem
+  const touch = e.pointerType === 'touch' && isMobile();
+  if (!touch) e.preventDefault();
   const sx = e.clientX, sy = e.clientY;
   const r0 = card.getBoundingClientRect();
   const offX = sx - r0.left, offY = sy - r0.top;
-  let dragging = false, ghost, line, insertAt = null, lastY = sy, raf = 0;
+  let dragging = false, ghost, line, insertAt = null, lastX = sx, lastY = sy, raf = 0;
+  const place = () => { ghost.style.transform = `translate(${lastX - offX}px, ${lastY - offY}px) rotate(-1.5deg)`; };
+  const press = touch ? setTimeout(() => { navigator.vibrate?.(15); begin(); place(); }, 450) : 0;
 
   const begin = () => {
     dragging = true;
@@ -398,17 +404,23 @@ function startCardDrag(e, from, card) {
 
   const updateInsert = () => {
     const cards = [...leftList.querySelectorAll('.spread')];
+    const grid = getComputedStyle(leftList).display === 'grid'; // no celular as folhas ficam em 2 colunas
     let idx = cards.length;
     for (let k = 0; k < cards.length; k++) {
       const r = cards[k].getBoundingClientRect();
-      if (lastY < r.top + r.height / 2) { idx = k; break; }
+      if (grid ? (lastY < r.top || (lastY <= r.bottom && lastX < r.left + r.width / 2)) : lastY < r.top + r.height / 2) { idx = k; break; }
     }
     insertAt = idx;
     const noop = idx === from || idx === from + 1;
     line.style.display = noop ? 'none' : 'block';
+    line.classList.toggle('v', grid);
     if (!noop) {
       const ref = cards[idx] || cards[cards.length - 1];
-      line.style.top = (idx < cards.length ? ref.offsetTop - 6 : ref.offsetTop + ref.offsetHeight + 4) + 'px';
+      if (grid) {
+        line.style.left = (idx < cards.length ? ref.offsetLeft - 7 : ref.offsetLeft + ref.offsetWidth + 4) + 'px';
+        line.style.top = ref.offsetTop + 'px';
+        line.style.height = ref.offsetHeight + 'px';
+      } else line.style.top = (idx < cards.length ? ref.offsetTop - 6 : ref.offsetTop + ref.offsetHeight + 4) + 'px';
     }
   };
 
@@ -423,17 +435,19 @@ function startCardDrag(e, from, card) {
   };
 
   const move = (ev) => {
-    lastY = ev.clientY;
+    lastX = ev.clientX; lastY = ev.clientY;
     if (!dragging) {
-      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
+      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < (touch ? 10 : 6)) return;
+      if (touch) return end(ev, true); // o dedo andou antes de segurar: é rolagem, não arrastar
       begin();
     }
-    ghost.style.transform = `translate(${ev.clientX - offX}px, ${ev.clientY - offY}px) rotate(-1.5deg)`;
+    place();
   };
-
   const end = (ev, cancel = false) => {
+    clearTimeout(press);
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', cancelEv);
     window.removeEventListener('keydown', esc);
     if (!dragging) { if (!cancel) goSpread(from); return; }
     dragging = false;
@@ -447,9 +461,11 @@ function startCardDrag(e, from, card) {
     if (res?.padded) toast('Uma página em branco foi adicionada para completar a folha.', 'info');
   };
   const up = (ev) => end(ev);
+  const cancelEv = (ev) => end(ev, true);
   const esc = (ev) => { if (ev.key === 'Escape') end(ev, true); };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', cancelEv);
   window.addEventListener('keydown', esc);
 }
 

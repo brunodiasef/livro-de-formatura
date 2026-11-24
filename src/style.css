@@ -326,9 +326,14 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   .right-body { padding: 4px 16px 40px; }
 
   /* lista de folhas: rolar com o dedo; botões das folhas sempre visíveis */
-  .spread { touch-action: pan-y; }
-  .sp-actions { opacity: 1; }
+  .spread { touch-action: pan-y; -webkit-touch-callout: none; -webkit-user-select: none; }
   .spread-list { display: grid; grid-template-columns: 1fr 1fr; align-content: start; }
+  .sp-meta { flex-wrap: wrap; gap: 2px 6px; }
+  .sp-title, .sp-pages { white-space: nowrap; }
+  .sp-actions { opacity: 1; margin-left: 0; width: 100%; justify-content: space-between; }
+  .drop-line.v { width: 4px; right: auto; }
+  .drop-line.v::before { left: -3px; top: -4px; }
+  .drop-line.v::after { left: -3px; right: auto; top: auto; bottom: -4px; }
 
   /* barra de navegação de baixo */
   .mnav {
