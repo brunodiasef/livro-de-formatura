@@ -21,6 +21,9 @@ export function rng(seed) {
 
 export const randSeed = () => Math.floor(Math.random() * 1e9);
 
+// celular: tela estreita (o computador nunca entra aqui)
+export const isMobile = () => typeof matchMedia === 'function' && matchMedia('(max-width: 820px)').matches;
+
 // cópias ganham grupos novos: cada grupo copiado vira um grupo próprio, sem ligar ao original
 export function remapGroups(els) {
   const map = new Map();

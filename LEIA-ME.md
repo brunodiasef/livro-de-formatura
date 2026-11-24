@@ -9,6 +9,15 @@ Aplicativo para montar o livro de formatura com modelos prontos, fotos, textos e
 - O projeto é salvo sozinho no navegador deste computador. Para guardar num arquivo (backup ou outro PC), use **Projeto › Salvar…** (**Ctrl+S**). Na primeira vez você escolhe o nome e a pasta; depois, **Ctrl+S** regrava sempre o mesmo arquivo. **Salvar como…** (**Ctrl+Shift+S**) grava num arquivo novo. Ao **abrir** um projeto, o Ctrl+S passa a gravar nele mesmo. O arquivo `.livro.json` inclui as fotos. (Isso funciona no Chrome e no Edge; em outros navegadores cada salvamento vai para a pasta Downloads.)
 - **Para alterar o código:** rode `npm run dev`. Depois de mexer, rode `npm run build` para atualizar o `Livro de Formatura.html`.
 
+### No celular
+
+Abra o mesmo link no navegador do celular. A tela muda sozinha para o modo celular (no computador nada muda):
+
+- **Barra de baixo:** **Folhas** (escolher a folha), **Editar** (opções do item selecionado), **Modelos** e **Ajustar** (volta a mostrar a página inteira). Cada uma abre uma gaveta que sobe de baixo; toque de novo ou em **Fechar** para esconder.
+- **Uma página por vez:** deslize o dedo para o lado para ver a outra página e passar de folha.
+- **Toque** seleciona. **Arraste** um item **já selecionado** para mover (arrastar um item não selecionado só rola a tela, para não mexer sem querer). **Toque duas vezes** num texto para editar, ou numa foto para escolher/enquadrar.
+- **Dois dedos (pinça)** dão zoom. **Segurar o dedo** abre o menu (copiar, colar, travar, mudar a ordem…).
+
 > O projeto aberto pelo `npm run dev` (endereço localhost) e o aberto pelo arquivo `.html` ficam guardados em lugares diferentes do navegador. Para levar o trabalho de um para o outro, use Salvar cópia / Abrir projeto.
 
 ## Formato de impressão

@@ -6,7 +6,7 @@ import {
 import { renderPage, slotOffset, photoDpi, imageRect } from './render.js';
 import { getImage, importFile } from './images.js';
 import { PAGE_W, PAGE_H, HALF_H, SAFE, SHEET_W, SHEET_H, DPI_MIN, DPI_GOOD } from './constants.js';
-import { h, clone, rad, clamp, uid, randSeed, remapGroups } from './util.js';
+import { h, clone, rad, clamp, uid, randSeed, remapGroups, isMobile } from './util.js';
 import { toast } from './ui-kit.js';
 
 let cv, ov, wrap, stage;
@@ -34,15 +34,17 @@ export function initEditor(container) {
 
   new ResizeObserver(() => { emit('view'); }).observe(wrap);
   on((type) => {
+    if (type === 'select' && isMobile()) followSelectionSide();
     if (type === 'change' || type === 'select' || type === 'view') { layout(); requestRender(); }
   });
 
-  ov.addEventListener('pointerdown', onDown);
-  ov.addEventListener('pointermove', onMove);
-  ov.addEventListener('pointerup', onUp);
-  ov.addEventListener('pointercancel', onUp);
+  // mouse: como sempre. Dedo no celular: tratado à parte (arrastar, pinça, toque duplo, segurar)
+  ov.addEventListener('pointerdown', (e) => (touchMode(e) ? tDown(e) : onDown(e)));
+  ov.addEventListener('pointermove', (e) => (touchMode(e) ? tMove(e) : onMove(e)));
+  ov.addEventListener('pointerup', (e) => (touchMode(e) ? tUp(e) : onUp(e)));
+  ov.addEventListener('pointercancel', (e) => (touchMode(e) ? tUp(e, true) : onUp(e)));
   ov.addEventListener('pointerleave', () => { hover = null; requestRender(); });
-  ov.addEventListener('dblclick', onDbl);
+  ov.addEventListener('dblclick', (e) => { if (isMobile() && Date.now() - T.last < 900) return; onDbl(e); });
   ov.addEventListener('contextmenu', onContext);
   ov.addEventListener('wheel', onWheel, { passive: false });
   wrap.addEventListener('dragover', (e) => { e.preventDefault(); wrap.classList.add('dropping'); });
@@ -54,14 +56,18 @@ export function initEditor(container) {
 
 function fitZoom() {
   const r = wrap.getBoundingClientRect();
+  // celular: "ajustar" mostra uma página por vez (deslize para ver a outra)
+  if (isMobile()) return Math.max(0.8, Math.min((r.width - 16) / PAGE_W, (r.height - 16) / PAGE_H));
   return Math.max(0.8, Math.min((r.width - 48) / SHEET_W, (r.height - 48) / SHEET_H));
 }
 export function getZoom() { return z; }
-export function setZoom(v) { state.zoom = v == null ? null : clamp(v, 1, 12); emit('view'); }
+export function setZoom(v) { state.zoom = v == null ? null : clamp(v, isMobile() ? 0.8 : 1, isMobile() ? 6 : 12); emit('view'); }
 
 function layout() {
   if (!wrap) return;
-  dpr = window.devicePixelRatio || 1;
+  const mob = isMobile();
+  // no celular a nitidez fica em 2x no máximo, para não estourar a memória do aparelho
+  dpr = mob ? Math.min(2, window.devicePixelRatio || 1) : window.devicePixelRatio || 1;
   z = state.zoom ?? fitZoom();
   const W = SHEET_W * z, H = SHEET_H * z;
   for (const c of [cv, ov]) {
@@ -70,6 +76,114 @@ function layout() {
     if (c.width !== pw || c.height !== ph) { c.width = pw; c.height = ph; }
   }
   stage.style.width = W + 'px'; stage.style.height = H + 'px';
+  if (mob && state.zoom == null) wrap.scrollLeft = mSide * PAGE_W * z; // mostra a página da vez
+}
+
+// ───────── toque no celular ─────────
+// 1 dedo num item já selecionado: move/redimensiona (como o mouse).
+// 1 dedo em outro lugar: rola a folha (ou desliza para a página seguinte); um toque só seleciona.
+// 2 dedos: pinça para zoom. Toque duplo: editar. Segurar: menu (copiar, colar, travar…).
+let mSide = 0;           // página visível no celular: 0 esquerda, 1 direita
+let lastSpread = 0;
+const T = { pts: new Map(), mode: null, start: null, moved: false, timer: 0, last: 0, lastTap: null, pinch: null, keepSide: false };
+const touchMode = (e) => e.pointerType === 'touch' && isMobile();
+
+function followSelectionSide() {
+  if (state.spread !== lastSpread) { if (!T.keepSide) mSide = 0; lastSpread = state.spread; }
+  T.keepSide = false;
+  const s = getSel();
+  if (s && spreadPages().includes(s.page)) mSide = s.pageIdx % 2;
+}
+
+function revertDrag() {
+  if (!drag) return;
+  if (drag.kind === 'group') for (const it of drag.items) { it.el.x = it.x0; it.el.y = it.y0; }
+  else if (drag.el0) { const f = findElement(drag.el0.id); if (f) Object.assign(f.el, clone(drag.el0)); }
+  drag = null; snapLines = [];
+  emit('live'); requestRender();
+}
+
+function tDown(e) {
+  T.last = Date.now();
+  try { ov.setPointerCapture(e.pointerId); } catch { /* sem problema */ }
+  T.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  clearTimeout(T.timer);
+  if (T.pts.size === 2) { // segundo dedo: vira pinça (desfaz o arraste que tinha começado)
+    if (T.mode === 'edit') revertDrag();
+    const [a, b] = [...T.pts.values()];
+    const r = stage.getBoundingClientRect(), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    T.pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: z, px: (mx - r.left) / z, py: (my - r.top) / z };
+    T.mode = 'pinch';
+    return;
+  }
+  if (T.pts.size > 2) return;
+  T.start = { x: e.clientX, y: e.clientY, sl: wrap.scrollLeft, st: wrap.scrollTop };
+  T.moved = false;
+  const m = toMM(e), sel = getSel(), hit = hitTest(m);
+  const onHandle = !(state.multi?.length >= 2) && handleAt(sel, m, 22);
+  const selectedHit = hit?.el && !hit.el.locked && (sel?.el?.id === hit.el.id || state.multi.includes(hit.el.id));
+  if (onHandle || selectedHit) { T.mode = 'edit'; onDown(e); } else T.mode = 'pan';
+  const x = e.clientX, y = e.clientY;
+  T.timer = setTimeout(() => {
+    if (T.moved || T.pts.size !== 1) return;
+    if (T.mode === 'edit') revertDrag();
+    T.mode = 'done';
+    onContext({ clientX: x, clientY: y, preventDefault() {}, synthetic: true });
+  }, 550);
+}
+
+function tMove(e) {
+  if (!T.pts.has(e.pointerId)) return;
+  T.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (T.mode === 'pinch' && T.pts.size >= 2) {
+    const [a, b] = [...T.pts.values()];
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    state.zoom = clamp(T.pinch.z0 * Math.hypot(a.x - b.x, a.y - b.y) / T.pinch.d0, 0.8, 6);
+    emit('view');
+    const r = stage.getBoundingClientRect(); // mantém embaixo dos dedos o mesmo ponto da folha
+    wrap.scrollLeft += r.left + T.pinch.px * z - mx;
+    wrap.scrollTop += r.top + T.pinch.py * z - my;
+    return;
+  }
+  if (T.mode !== 'pan' && T.mode !== 'edit') return;
+  const dx = e.clientX - T.start.x, dy = e.clientY - T.start.y;
+  if (!T.moved && Math.hypot(dx, dy) < 8) return;
+  if (!T.moved) { T.moved = true; clearTimeout(T.timer); }
+  if (T.mode === 'pan') { wrap.scrollLeft = T.start.sl - dx; wrap.scrollTop = T.start.st - dy; return; }
+  onMove(e);
+}
+
+function tUp(e, cancel = false) {
+  if (!T.pts.has(e.pointerId)) return;
+  T.pts.delete(e.pointerId);
+  clearTimeout(T.timer);
+  if (T.mode === 'pinch') { if (!T.pts.size) T.mode = null; return; }
+  const mode = T.mode;
+  T.mode = null;
+  if (mode === 'edit') onUp(e);
+  if (cancel || mode === 'done' || !mode) return;
+  if (T.moved) {
+    if (mode === 'pan' && state.zoom == null) swipePage(e.clientX - T.start.x, e.clientY - T.start.y);
+    return;
+  }
+  if (mode === 'pan') { onDown(e); onUp(e); } // um toque: seleciona como um clique
+  const now = Date.now(), lt = T.lastTap;
+  if (lt && now - lt.t < 350 && Math.hypot(e.clientX - lt.x, e.clientY - lt.y) < 30) { T.lastTap = null; onDbl(e); }
+  else T.lastTap = { t: now, x: e.clientX, y: e.clientY };
+}
+
+// deslizar com a folha ajustada à tela: passa para a outra página (e para a folha seguinte/anterior)
+function swipePage(dx, dy) {
+  let side = mSide;
+  if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+    if (dx < 0) {
+      if (side === 0 && spreadPages()[1]) side = 1;
+      else if (state.spread < spreadCount() - 1) { state.spread++; state.sel = null; mSide = 0; T.keepSide = true; emit('select'); return; }
+    } else if (side === 1) side = 0;
+    else if (state.spread > 0) { state.spread--; state.sel = null; mSide = spreadPages()[1] ? 1 : 0; T.keepSide = true; emit('select'); return; }
+  }
+  mSide = side;
+  wrap.scrollTo({ left: side * PAGE_W * z, behavior: 'smooth' });
 }
 
 // ───────── desenho ─────────
@@ -164,7 +278,7 @@ function renderOverlay() {
           g.fillStyle = '#5b4a3f'; g.font = '600 11px system-ui'; g.textAlign = 'center';
           g.fillText('＋ Foto', 0, -2);
           g.font = '10px system-ui'; g.fillStyle = '#8a7a6f';
-          g.fillText('duplo clique ou arraste', 0, 11);
+          g.fillText(isMobile() ? 'toque duas vezes' : 'duplo clique ou arraste', 0, 11);
           g.restore();
         } else {
           const dpi = photoDpi(el);
@@ -267,8 +381,9 @@ function renderOverlay() {
       drawBox(g, el, ox, oy, 'rgba(46,110,230,1)');
       for (const hd of handles(el, ox, oy)) {
         g.beginPath();
-        if (hd.id === 'rot') g.arc(Z(hd.x), Z(hd.y), 5.5, 0, Math.PI * 2);
-        else g.rect(Z(hd.x) - 4.5, Z(hd.y) - 4.5, 9, 9);
+        const hs = isMobile() ? 7.5 : 4.5; // no celular as alças ficam maiores, para o dedo
+        if (hd.id === 'rot') g.arc(Z(hd.x), Z(hd.y), hs + 1, 0, Math.PI * 2);
+        else g.rect(Z(hd.x) - hs, Z(hd.y) - hs, hs * 2, hs * 2);
         g.fillStyle = '#fff'; g.fill();
         g.lineWidth = 1.5; g.strokeStyle = 'rgba(46,110,230,1)'; g.stroke();
       }
@@ -528,11 +643,11 @@ function hitTest(m) {
   return { page, slotIdx: si, el: null };
 }
 
-function handleAt(sel, m) {
+function handleAt(sel, m, radius = 8) {
   if (!sel?.el || sel.el.locked || !spreadPages().includes(sel.page) || state.panMode) return null;
   const { ox, oy } = elWorld(sel.page, sel.slotIdx, sel.el);
   for (const hd of handles(sel.el, ox, oy)) {
-    if (Math.hypot(hd.x - m.x, hd.y - m.y) * z < 8) return hd;
+    if (Math.hypot(hd.x - m.x, hd.y - m.y) * z < radius) return hd;
   }
   return null;
 }
@@ -562,11 +677,11 @@ function startGroupMove(m) {
 
 function onDown(e) {
   if (e.button !== 0) return;
-  ov.setPointerCapture(e.pointerId);
+  try { ov.setPointerCapture(e.pointerId); } catch { /* toque já solto (celular) */ }
   const m = toMM(e);
   const sel = getSel();
   const multiNow = state.multi?.length >= 2;
-  const hd = multiNow ? null : handleAt(sel, m);
+  const hd = multiNow ? null : handleAt(sel, m, touchMode(e) ? 22 : 8);
   if (hd) {
     drag = { kind: hd.id === 'rot' ? 'rotate' : 'resize', hd, start: m, el0: clone(sel.el), page: sel.page, slotIdx: sel.slotIdx };
     return;
@@ -1010,6 +1125,8 @@ export function pasteClipboard() {
 // botão direito: seleciona o que está embaixo do mouse e abre o menu (montado na interface)
 function onContext(e) {
   e.preventDefault();
+  // celular: o menu vem do "segurar o dedo" (feito acima); ignora o do próprio navegador
+  if (!e.synthetic && isMobile() && Date.now() - T.last < 1500) return;
   const m = toMM(e);
   const hit = hitTest(m);
   if (hit) {

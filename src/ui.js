@@ -11,7 +11,7 @@ import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER
 import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo, groupSelected, ungroupSelected, isOneGroup, lockSelected, unlockAllOnPage, lockAllOnPage } from './editor.js';
 import { FONTS, fontWeights, fontHasItalic, WEIGHT_NAMES } from './fonts.js';
 import { BACKGROUNDS, FRAMES, DECOS, SWATCHES, PAGE_W, PAGE_H, HALF_H, DPI_MIN, DPI_GOOD } from './constants.js';
-import { h, uid, randSeed, debounce, clone } from './util.js';
+import { h, uid, randSeed, debounce, clone, isMobile } from './util.js';
 import { btn, icon, toast, modal, confirmBox } from './ui-kit.js';
 import { openExportDialog } from './export.js';
 import { openBatchDialog } from './batch.js';
@@ -25,7 +25,10 @@ export function initUI(root) {
   const left = h('aside', { class: 'left' });
   const center = h('main', { class: 'center' });
   const right = h('aside', { class: 'right' });
-  root.append(buildTopbar(), h('div', { class: 'body' }, left, center, right));
+  const bodyEl = h('div', { class: 'body' }, left, center, right);
+  root.append(buildTopbar(), bodyEl, buildMobileNav());
+  // celular: ao focar um campo da gaveta, o navegador tenta rolar a área inteira; mantém tudo no lugar
+  for (const el of [bodyEl, root]) el.addEventListener('scroll', () => { if (el.scrollTop || el.scrollLeft) { el.scrollTop = 0; el.scrollLeft = 0; } });
   buildLeft(left);
   initEditor(center);
   center.append(buildZoomBar());
@@ -38,18 +41,21 @@ export function initUI(root) {
       refreshLeft();
       refreshTop();
       if (info.rebuild || needsRebuild()) renderRight(); else syncInputs();
+      refreshMobileNav();
     } else if (type === 'select') {
       refreshLeft();
       const s = getSel();
       if (s?.el || state.multi?.length >= 2) rightTab = 'edit';
       renderRight();
+      refreshMobileNav();
     } else if (type === 'live') {
       syncInputs();
     } else if (type === 'focus-text') {
       rightTab = 'edit';
       renderRight();
+      if (isMobile()) openSheet('right'); // no celular, toque duplo no texto abre a gaveta de edição
       const ta = rightEl.querySelector('textarea');
-      if (ta) { ta.focus(); ta.select(); }
+      if (ta) { ta.focus(); if (!isMobile()) ta.select(); }
     } else if (type === 'contextmenu') {
       openContextMenu(info);
     } else if (type === 'saved' || type === 'file') {
@@ -60,6 +66,45 @@ export function initUI(root) {
   });
   refreshLeft();
   refreshTop();
+}
+
+// ───────── celular: barra de baixo e gavetas ─────────
+// No computador a barra fica escondida (CSS) e nada disto muda a tela.
+let mnav = null;
+let sheet = null; // 'left' | 'right' | null
+
+function openSheet(which) {
+  sheet = which;
+  document.body.classList.toggle('m-left', which === 'left');
+  document.body.classList.toggle('m-right', which === 'right');
+  document.body.classList.toggle('m-open', !!which);
+  refreshMobileNav();
+}
+function toggleSheet(which, tab) {
+  const same = sheet === which && (which !== 'right' || rightTab === tab);
+  if (which === 'right' && tab && rightTab !== tab) { rightTab = tab; renderRight(); }
+  openSheet(same ? null : which);
+}
+const sheetHandle = () => h('button', { class: 'm-handle', onClick: () => openSheet(null), title: 'Fechar' }, 'Fechar');
+
+function buildMobileNav() {
+  const item = (key, ic, label, onClick) => h('button', { 'data-k': key, onClick }, icon(ic), h('span', {}, label));
+  mnav = h('nav', { class: 'mnav' },
+    item('left', 'book', 'Folhas', () => toggleSheet('left')),
+    item('edit', 'move', 'Editar', () => toggleSheet('right', 'edit')),
+    item('templates', 'grid', 'Modelos', () => toggleSheet('right', 'templates')),
+    item('fit', 'fit', 'Ajustar', () => { openSheet(null); setZoom(null); }),
+  );
+  return mnav;
+}
+function refreshMobileNav() {
+  if (!mnav) return;
+  const selected = !!getSel()?.el || state.multi?.length >= 2;
+  for (const b of mnav.querySelectorAll('button')) {
+    const k = b.dataset.k;
+    b.classList.toggle('on', (k === 'left' && sheet === 'left') || (sheet === 'right' && k === rightTab));
+    b.classList.toggle('dot', k === 'edit' && selected && !(sheet === 'right' && rightTab === 'edit'));
+  }
 }
 
 // ───────── barra superior ─────────
@@ -189,6 +234,7 @@ function goSpread(i) {
   if (i < 0 || i >= spreadCount()) return;
   state.spread = i;
   state.sel = null;
+  if (sheet === 'left') openSheet(null); // no celular: escolheu a folha, a gaveta fecha para mostrar
   emit('select');
 }
 
@@ -232,6 +278,7 @@ function buildLeft(left) {
   leftList = h('div', { class: 'spread-list' });
   leftStats = h('div', { class: 'stats' });
   left.append(
+    sheetHandle(), // só aparece no celular
     h('div', { class: 'panel-head' }, h('h3', {}, 'Folhas A4'), h('small', {}, 'cada folha = 2 páginas')),
     leftList,
     h('div', { class: 'left-foot' },
@@ -443,6 +490,8 @@ function renderRight() {
   if (oldBody && renderedTab === 'templates') templatesScroll = oldBody.scrollTop;
   renderedTab = rightTab;
   rightEl.innerHTML = '';
+  rightEl.append(sheetHandle()); // só aparece no celular
+  refreshMobileNav();
   const tabs = h('div', { class: 'tabs' },
     h('button', { class: 'tab' + (rightTab === 'templates' ? ' on' : ''), onClick: () => { rightTab = 'templates'; renderRight(); } }, icon('grid'), 'Modelos'),
     h('button', { class: 'tab' + (rightTab === 'edit' ? ' on' : ''), onClick: () => { rightTab = 'edit'; renderRight(); } }, icon('move'), 'Editar'),
