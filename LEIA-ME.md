@@ -78,7 +78,8 @@ Ao trocar de modelo, a foto e os textos que você já inseriu continuam no lugar
    - **Mudar a ordem das páginas:** clique numa área vazia da página › **Mover para trás / para frente** (ou o botão direito). A página anda uma casa: da direita para a esquerda da mesma folha, depois para a folha anterior, e quem estava lá desce. **Organizar a ordem das páginas…** abre a lista para arrastar.
 3. Monte a capa, os professores e a turma com os modelos de página inteira.
 4. **Exportar para impressão** → PDF A4. Ao clicar em **Exportar…**, o app pergunta onde salvar e com que nome (no Chrome/Edge; ele lembra a última pasta). Na impressora, escolha **"Tamanho real / 100%"**.
-5. Para cortar, escolha a ordem das páginas:
+5. **Frente e verso:** na janela de exportar, escolha **Impressão › Frente e verso**. O app monta sozinho a frente e o verso de cada folha. Depois de cortar, cada metade tem uma página na frente e a seguinte atrás (1 com 2, 3 com 4…), sem mudar nada no livro. Na impressora, ative frente e verso e escolha a mesma borda escolhida no app: **borda curta** (recomendado) ou **borda longa**. Antes de imprimir tudo, teste com as 2 primeiras páginas do PDF (frente e verso da 1ª folha).
+6. Para cortar, escolha a ordem das páginas:
    - **Sequencial:** cada folha tem as páginas 1–2, 3–4 e assim por diante.
    - **Cortar e empilhar:** corte a pilha inteira de uma vez e coloque a pilha da direita embaixo da da esquerda.
 

@@ -7,8 +7,27 @@ import { PAGE_W, PAGE_H, SHEET_W, SHEET_H, DPI_MIN } from './constants.js';
 import { h, download, sleep } from './util.js';
 import { modal, toast } from './ui-kit.js';
 
-function sheetsFor(pages, imposition) {
+// Cada item devolvido é um lado de folha A4 do PDF: [metade esquerda, metade direita].
+// Frente e verso: depois de cortar ao meio, cada metade (A5) vira uma "folhinha" do livro
+// com uma página na frente e a seguinte no verso (folhinha k = págs. 2k+1 e 2k+2).
+export function sheetsFor(pages, imposition, duplex = false, flip = 'curta') {
   const N = pages.length;
+  if (duplex) {
+    const at = (i) => ({ page: pages[i] || null, idx: i });
+    const L = Math.ceil(N / 2); // folhinhas A5
+    const S = Math.ceil(L / 2); // folhas A4 de papel
+    const out = [];
+    for (let i = 0; i < S; i++) {
+      // empilhar: a pilha da esquerda tem as folhinhas 1..S e a da direita S+1..2S
+      const a = imposition === 'empilhar' ? i : 2 * i; // folhinha da metade esquerda (na frente)
+      const b = imposition === 'empilhar' ? i + S : 2 * i + 1; // folhinha da metade direita (na frente)
+      out.push([at(2 * a), at(2 * b)]);
+      // virando pela borda curta (como um livro), o verso da metade esquerda fica atrás da direita;
+      // pela borda longa (como um bloco de notas), cada verso fica atrás do seu lado
+      out.push(flip === 'longa' ? [at(2 * a + 1), at(2 * b + 1)] : [at(2 * b + 1), at(2 * a + 1)]);
+    }
+    return out;
+  }
   if (imposition === 'empilhar') {
     const S = Math.ceil(N / 2);
     return Array.from({ length: S }, (_, i) => [{ page: pages[i], idx: i }, { page: pages[i + S] || null, idx: i + S }]);
@@ -68,7 +87,7 @@ function collectIssues() {
 
 export function openExportDialog() {
   const st = state.book.settings || (state.book.settings = {});
-  const opts = { format: 'a4', imposition: st.imposition || 'sequencial', marks: st.marks || 'marcas', dpi: st.dpi || 300 };
+  const opts = { format: 'a4', imposition: st.imposition || 'sequencial', marks: st.marks || 'marcas', dpi: st.dpi || 300, sides: st.sides || 'frente', flip: st.flip || 'curta' };
   const issues = collectIssues();
 
   const radio = (name, value, label, desc) => {
@@ -79,11 +98,24 @@ export function openExportDialog() {
   };
 
   const N = state.book.pages.length;
+  const sidesBox = h('div', { class: 'opt-group' });
+  const flipBox = h('div', { class: 'sub-opts' });
   const impoBox = h('div', { class: 'opt-group' });
+  const impoHelp = h('div', { class: 'sub-help' });
   const marksBox = h('div', { class: 'opt-group' });
+  const a4Label = h('span');
   const refresh = () => {
-    impoBox.style.display = opts.format === 'a4' ? '' : 'none';
-    marksBox.style.display = opts.format === 'a4' ? '' : 'none';
+    const a4 = opts.format === 'a4', duplex = opts.sides === 'verso';
+    for (const b of [sidesBox, impoBox, marksBox]) b.style.display = a4 ? '' : 'none';
+    flipBox.style.display = duplex ? '' : 'none';
+    const papers = duplex ? Math.ceil(N / 4) : Math.ceil(N / 2);
+    a4Label.textContent = `PDF A4 paisagem — ${papers} folha(s) de papel${duplex ? ', frente e verso' : ''}`;
+    const leftPile = duplex ? Math.min(N, 2 * papers) : papers;
+    impoHelp.textContent = opts.imposition === 'empilhar'
+      ? `Depois de imprimir, corte a pilha inteira ao meio de uma vez. A pilha da esquerda tem as págs. 1–${leftPile} e a da direita as demais: coloque a pilha da direita embaixo da esquerda e o livro já fica na ordem.`
+      : duplex
+        ? 'Depois de imprimir, corte cada folha ao meio e junte as metades na ordem: esquerda, direita, esquerda, direita…'
+        : 'Folha 1 = págs. 1–2, folha 2 = págs. 3–4… Depois de cortar, junte as metades na ordem: esquerda, direita, esquerda, direita…';
   };
 
   const warn = [];
@@ -97,10 +129,11 @@ export function openExportDialog() {
   const body = h('div', { class: 'export' },
     h('div', { class: 'opt-group' },
       h('h4', {}, 'Formato'),
-      radio('format', 'a4', `PDF A4 paisagem — ${Math.ceil(N / 2)} folha(s)`, 'Para imprimir em casa ou na copiadora e cortar ao meio. 2 páginas por folha.'),
+      (() => { const l = radio('format', 'a4', '', 'Para imprimir em casa ou na copiadora e cortar ao meio. 2 páginas por lado da folha.'); l.querySelector('b').replaceWith(h('b', {}, a4Label)); return l; })(),
       radio('format', 'a5', `PDF A5 — ${N} página(s) separadas`, 'Para enviar a uma gráfica que imprime e encaderna.'),
       radio('format', 'png', 'PNG da folha aberta no editor', 'Imagem em alta resolução para conferir ou mandar por WhatsApp.'),
     ),
+    sidesBox,
     impoBox,
     marksBox,
     h('div', { class: 'opt-group' },
@@ -115,10 +148,22 @@ export function openExportDialog() {
       'Papel fotográfico ou couché 170–250 g dá o melhor resultado. A área de 4–5 mm da borda pode ficar branca em impressoras comuns — por isso textos e rostos ficam dentro das margens de segurança.'),
     progress,
   );
+  sidesBox.append(
+    h('h4', {}, 'Impressão'),
+    radio('sides', 'frente', 'Só frente', 'Cada folha é impressa de um lado só.'),
+    radio('sides', 'verso', 'Frente e verso (o app organiza as páginas sozinho)', 'Depois de cortar, cada metade tem uma página na frente e a seguinte no verso (pág. 1 com a 2 atrás, pág. 3 com a 4 atrás…). Você não precisa mudar nada no livro.'),
+    flipBox,
+  );
+  flipBox.append(
+    h('small', {}, 'Na impressora, ative "frente e verso" e escolha a mesma opção daqui:'),
+    radio('flip', 'curta', 'Virar na borda curta (recomendado)', 'O verso é impresso como se você virasse a folha de lado, igual a um livro.'),
+    radio('flip', 'longa', 'Virar na borda longa', 'Use esta se a sua impressora só tiver essa opção.'),
+  );
   impoBox.append(
     h('h4', {}, 'Ordem das páginas nas folhas'),
-    radio('imposition', 'sequencial', 'Sequencial (folha 1 = págs. 1–2, folha 2 = págs. 3–4…)', 'Depois de cortar, junte as metades na ordem: esquerda, direita, esquerda, direita…'),
-    radio('imposition', 'empilhar', 'Cortar e empilhar (mais prático com guilhotina)', `Corte a pilha inteira de uma vez: a pilha da esquerda tem as págs. 1–${Math.ceil(N / 2)} e a da direita as demais. Basta colocar a pilha da direita embaixo da esquerda.`),
+    radio('imposition', 'sequencial', 'Sequencial (cortar folha por folha)'),
+    radio('imposition', 'empilhar', 'Cortar e empilhar (mais prático com guilhotina)'),
+    impoHelp,
   );
   marksBox.append(
     h('h4', {}, 'Marca de corte no meio da folha'),
@@ -143,7 +188,7 @@ export function openExportDialog() {
         target = null;
       }
       busy = true;
-      Object.assign(st, { imposition: opts.imposition, marks: opts.marks, dpi: opts.dpi });
+      Object.assign(st, { imposition: opts.imposition, marks: opts.marks, dpi: opts.dpi, sides: opts.sides, flip: opts.flip });
       commit();
       progress.classList.remove('hidden');
       dlg.foot.querySelectorAll('button').forEach((b) => (b.disabled = true));
@@ -169,7 +214,7 @@ function exportFileName(opts) {
   const name = slug(state.book.title);
   if (opts.format === 'png') return `${name}-folha-${state.spread + 1}.png`;
   if (opts.format === 'a5') return `${name}-A5.pdf`;
-  return `${name}-A4-${opts.imposition}.pdf`;
+  return `${name}-A4-${opts.imposition}${opts.sides === 'verso' ? '-frente-e-verso' : ''}.pdf`;
 }
 
 // Chrome/Edge: abre a janela "Salvar como" (lembra a última pasta usada). Outros navegadores: null = pasta Downloads.
@@ -224,10 +269,13 @@ async function runExport(opts, onProgress, save) {
     return;
   }
 
-  const sheets = sheetsFor(pages, opts.imposition);
+  const duplex = opts.sides === 'verso';
+  const sheets = sheetsFor(pages, opts.imposition, duplex, opts.flip);
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
   for (let i = 0; i < sheets.length; i++) {
-    onProgress(i, sheets.length, `Folha ${i + 1} de ${sheets.length}…`);
+    onProgress(i, sheets.length, duplex
+      ? `Folha ${Math.floor(i / 2) + 1} de ${sheets.length / 2} (${i % 2 ? 'verso' : 'frente'})…`
+      : `Folha ${i + 1} de ${sheets.length}…`);
     await sleep(20);
     const c = sheetCanvas(sheets[i][0], sheets[i][1], pxmm);
     if (i > 0) pdf.addPage('a4', 'landscape');
@@ -245,5 +293,5 @@ async function runExport(opts, onProgress, save) {
     }
   }
   onProgress(1, 1, 'Salvando PDF…');
-  await save(pdf.output('blob'), `${name}-A4-${opts.imposition}.pdf`);
+  await save(pdf.output('blob'), exportFileName(opts));
 }

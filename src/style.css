@@ -241,6 +241,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgba(168, 129, 58
 .opt input { accent-color: var(--accent); margin-top: 2px; }
 .opt div { display: flex; flex-direction: column; gap: 2px; }
 .opt small { color: var(--muted); }
+.sub-opts { display: flex; flex-direction: column; gap: 6px; margin-left: 26px; padding-left: 12px; border-left: 2px solid var(--accent-soft); }
+.sub-opts > small { color: var(--muted); font-size: 12px; }
+.sub-help { color: var(--text); font-size: 12px; background: var(--accent-soft); border-radius: 9px; padding: 8px 12px; }
+.sub-help:empty { display: none; }
 .warnbox { background: #fdf6e8; border: 1px solid #f0dcb4; border-radius: 9px; padding: 10px 14px; }
 .warnbox h4 { margin: 0 0 6px; }
 .warnbox ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
