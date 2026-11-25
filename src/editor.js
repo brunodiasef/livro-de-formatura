@@ -551,6 +551,23 @@ export function unlockAllOnPage(page) {
   if (n) { commit(); toast(`Página ${pageIndex(page.id) + 1} destravada (${n === 1 ? '1 item' : n + ' itens'}).`); }
   else toast('Nada travado nesta página.');
 }
+// quantos itens estão travados no livro inteiro
+export function lockedInBook() {
+  let n = 0;
+  for (const p of state.book.pages) for (const s of p.slots) for (const e of s.elements) if (e.locked) n++;
+  return n;
+}
+// destrava todos os itens de todas as páginas do livro (dá para desfazer com Ctrl+Z)
+export function unlockAllInBook() {
+  let n = 0, pages = 0;
+  for (const p of state.book.pages) {
+    let had = false;
+    for (const s of p.slots) for (const e of s.elements) if (e.locked) { delete e.locked; n++; had = true; }
+    if (had) pages++;
+  }
+  if (n) { commit(); emit('select'); toast(`Livro inteiro destravado: ${n === 1 ? '1 item' : n + ' itens'} em ${pages === 1 ? '1 página' : pages + ' páginas'}.`); }
+  else toast('Nada travado no livro.');
+}
 // trava todos os itens da página de uma vez (fotos, textos e enfeites dos dois blocos)
 export function lockAllOnPage(page) {
   let n = 0;

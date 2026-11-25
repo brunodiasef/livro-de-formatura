@@ -8,7 +8,7 @@ import {
 } from './state.js';
 import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
 import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER_FRAMES, textObstacles } from './render.js';
-import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo, groupSelected, ungroupSelected, isOneGroup, lockSelected, unlockAllOnPage, lockAllOnPage } from './editor.js';
+import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo, groupSelected, ungroupSelected, isOneGroup, lockSelected, unlockAllOnPage, lockAllOnPage, lockedInBook, unlockAllInBook } from './editor.js';
 import { FONTS, fontWeights, fontHasItalic, WEIGHT_NAMES } from './fonts.js';
 import { BACKGROUNDS, FRAMES, DECOS, SWATCHES, PAGE_W, PAGE_H, HALF_H, DPI_MIN, DPI_GOOD } from './constants.js';
 import { h, uid, randSeed, debounce, clone, isMobile } from './util.js';
@@ -152,6 +152,8 @@ function buildTopbar() {
       { label: 'Salvar como…', icon: 'save', keys: 'Ctrl+Shift+S', onClick: saveProjectAs },
       '-',
       { label: 'Abrir projeto salvo…', icon: 'folder', onClick: pickAndOpenProject },
+      '-',
+      { label: 'Destravar o livro inteiro', icon: 'unlock', disabled: !lockedInBook(), onClick: unlockBookUI },
       '-',
       { label: 'Novo projeto (começar do zero)', icon: 'file', onClick: newProject },
     ]);
@@ -811,6 +813,7 @@ function openContextMenu({ x, y, onItem }) {
     menu({ x, y }, [
       { label: 'Destravar', icon: 'unlock', keys: 'Ctrl+Shift+L', onClick: () => lockSelected(false) },
       { label: 'Destravar a página inteira', icon: 'unlock', onClick: () => unlockAllOnPage(s.page) },
+      { label: 'Destravar o livro inteiro', icon: 'unlock', onClick: unlockBookUI },
       '-',
       { label: 'Copiar', icon: 'copy', keys: 'Ctrl+C', onClick: () => copySelected() },
       { label: 'Duplicar', icon: 'copy', keys: 'Ctrl+D', onClick: duplicateSelected },
@@ -845,8 +848,16 @@ function openContextMenu({ x, y, onItem }) {
     s ? '-' : null,
     s ? { label: 'Travar a página inteira', icon: 'lock', onClick: () => lockAllOnPage(s.page) } : null,
     s ? { label: 'Destravar a página inteira', icon: 'unlock', onClick: () => unlockAllOnPage(s.page) } : null,
+    lockedInBook() ? { label: 'Destravar o livro inteiro', icon: 'unlock', onClick: unlockBookUI } : null,
   ].filter(Boolean);
   menu({ x, y }, items);
+}
+
+// destrava todas as páginas, perguntando antes (dá para desfazer)
+async function unlockBookUI() {
+  const n = lockedInBook();
+  if (!n) { toast('Nada travado no livro.'); return; }
+  if (await confirmBox('Destravar o livro inteiro', `Destravar ${n === 1 ? '1 item travado' : `os ${n} itens travados`} em todas as páginas do livro? Você pode desfazer com Ctrl+Z.`, 'Destravar tudo')) unlockAllInBook();
 }
 
 // ───── item travado (cadeado) ─────
@@ -861,6 +872,7 @@ function renderLockedProps(body, s) {
         h('p', {}, 'Este item não pode ser movido, redimensionado, girado, editado nem apagado. Destrave para mexer de novo.'))),
       btn('Destravar', { icon: 'unlock', cls: 'primary block', onClick: () => lockSelected(false), title: 'Ctrl+Shift+L' }),
       btn('Destravar a página inteira', { icon: 'unlock', cls: 'block', onClick: () => unlockAllOnPage(s.page) }),
+      btn('Destravar o livro inteiro', { icon: 'unlock', cls: 'block', onClick: unlockBookUI }),
     ),
     section(null,
       h('p', { class: 'hint' }, 'Dá para copiar ou duplicar: a cópia sai destravada.'),
@@ -1205,6 +1217,7 @@ function renderPageProps(body) {
       h('div', { class: 'actions' },
         btn('Travar página', { icon: 'lock', cls: lockedCount < totalCount ? 'primary' : '', disabled: !totalCount || lockedCount >= totalCount, onClick: () => lockAllOnPage(page), title: 'Trava todas as fotos, textos e enfeites desta página' }),
         btn('Destravar página', { icon: 'unlock', disabled: !lockedCount, onClick: () => unlockAllOnPage(page), title: 'Destrava tudo desta página' })),
+      btn('Destravar o livro inteiro', { icon: 'unlock', cls: 'block', disabled: !lockedInBook(), onClick: unlockBookUI, title: 'Destrava tudo, em todas as páginas do livro' }),
     ),
     section('Divisão da página',
       segInput({ get layout() { return page.layout; }, set layout(v) { setLayout(page, v); } }, 'layout', [
