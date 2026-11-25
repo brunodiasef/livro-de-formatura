@@ -8,7 +8,7 @@ import {
 } from './state.js';
 import { TEMPLATES, getTemplate, customTemplates, T, P, D, BODY, instantiate } from './templates.js';
 import { renderPage, renderSheetCanvas, layoutText, photoDpi, drawElement, PAPER_FRAMES, textObstacles } from './render.js';
-import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo, groupSelected, ungroupSelected, isOneGroup, lockSelected, unlockAllOnPage, lockAllOnPage, lockedInBook, unlockAllInBook } from './editor.js';
+import { initEditor, requestRender, pickPhoto, deleteSelected, duplicateSelected, reorderSelected, setZoom, getZoom, alignSelected, copySelected, pasteClipboard, clipboardInfo, groupSelected, ungroupSelected, isOneGroup, lockSelected, unlockAllOnPage, lockAllOnPage, lockedInBook, unlockAllInBook, itemsInBook, lockAllInBook } from './editor.js';
 import { FONTS, fontWeights, fontHasItalic, WEIGHT_NAMES } from './fonts.js';
 import { BACKGROUNDS, FRAMES, DECOS, SWATCHES, PAGE_W, PAGE_H, HALF_H, DPI_MIN, DPI_GOOD } from './constants.js';
 import { h, uid, randSeed, debounce, clone, isMobile } from './util.js';
@@ -153,6 +153,7 @@ function buildTopbar() {
       '-',
       { label: 'Abrir projeto salvo…', icon: 'folder', onClick: pickAndOpenProject },
       '-',
+      { label: 'Travar o livro inteiro', icon: 'lock', disabled: lockedInBook() >= itemsInBook(), onClick: lockBookUI },
       { label: 'Destravar o livro inteiro', icon: 'unlock', disabled: !lockedInBook(), onClick: unlockBookUI },
       '-',
       { label: 'Novo projeto (começar do zero)', icon: 'file', onClick: newProject },
@@ -848,11 +849,18 @@ function openContextMenu({ x, y, onItem }) {
     s ? '-' : null,
     s ? { label: 'Travar a página inteira', icon: 'lock', onClick: () => lockAllOnPage(s.page) } : null,
     s ? { label: 'Destravar a página inteira', icon: 'unlock', onClick: () => unlockAllOnPage(s.page) } : null,
+    lockedInBook() < itemsInBook() ? { label: 'Travar o livro inteiro', icon: 'lock', onClick: lockBookUI } : null,
     lockedInBook() ? { label: 'Destravar o livro inteiro', icon: 'unlock', onClick: unlockBookUI } : null,
   ].filter(Boolean);
   menu({ x, y }, items);
 }
 
+// trava todas as páginas, perguntando antes (dá para desfazer)
+async function lockBookUI() {
+  const n = itemsInBook() - lockedInBook();
+  if (!n) { toast('O livro já está todo travado.'); return; }
+  if (await confirmBox('Travar o livro inteiro', `Travar ${n === 1 ? '1 item' : `os ${n} itens`} de todas as páginas do livro? Nada vai poder ser movido, editado nem apagado até destravar. Você pode desfazer com Ctrl+Z.`, 'Travar tudo')) lockAllInBook();
+}
 // destrava todas as páginas, perguntando antes (dá para desfazer)
 async function unlockBookUI() {
   const n = lockedInBook();
@@ -1217,7 +1225,10 @@ function renderPageProps(body) {
       h('div', { class: 'actions' },
         btn('Travar página', { icon: 'lock', cls: lockedCount < totalCount ? 'primary' : '', disabled: !totalCount || lockedCount >= totalCount, onClick: () => lockAllOnPage(page), title: 'Trava todas as fotos, textos e enfeites desta página' }),
         btn('Destravar página', { icon: 'unlock', disabled: !lockedCount, onClick: () => unlockAllOnPage(page), title: 'Destrava tudo desta página' })),
-      btn('Destravar o livro inteiro', { icon: 'unlock', cls: 'block', disabled: !lockedInBook(), onClick: unlockBookUI, title: 'Destrava tudo, em todas as páginas do livro' }),
+      h('p', { class: 'hint' }, 'Livro inteiro (todas as páginas):'),
+      h('div', { class: 'actions' },
+        btn('Travar livro', { icon: 'lock', disabled: lockedInBook() >= itemsInBook(), onClick: lockBookUI, title: 'Trava tudo, em todas as páginas do livro' }),
+        btn('Destravar livro', { icon: 'unlock', disabled: !lockedInBook(), onClick: unlockBookUI, title: 'Destrava tudo, em todas as páginas do livro' })),
     ),
     section('Divisão da página',
       segInput({ get layout() { return page.layout; }, set layout(v) { setLayout(page, v); } }, 'layout', [

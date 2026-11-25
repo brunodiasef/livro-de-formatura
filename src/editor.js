@@ -557,6 +557,21 @@ export function lockedInBook() {
   for (const p of state.book.pages) for (const s of p.slots) for (const e of s.elements) if (e.locked) n++;
   return n;
 }
+// quantos itens existem no livro inteiro
+export function itemsInBook() {
+  let n = 0;
+  for (const p of state.book.pages) for (const s of p.slots) n += s.elements.length;
+  return n;
+}
+// trava todos os itens de todas as páginas do livro (dá para desfazer com Ctrl+Z)
+export function lockAllInBook() {
+  let n = 0;
+  for (const p of state.book.pages) for (const s of p.slots) for (const e of s.elements) if (!e.locked) { e.locked = true; n++; }
+  if (state.sel?.elId) state.sel = { ...state.sel, elId: null };
+  if (state.multi?.length) state.multi = [];
+  if (n) { commit(); emit('select'); toast(`Livro inteiro travado: ${n === 1 ? '1 item' : n + ' itens'}. Ninguém consegue mexer até destravar.`); }
+  else toast('O livro já está todo travado.');
+}
 // destrava todos os itens de todas as páginas do livro (dá para desfazer com Ctrl+Z)
 export function unlockAllInBook() {
   let n = 0, pages = 0;

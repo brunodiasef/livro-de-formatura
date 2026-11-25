@@ -93,7 +93,7 @@ Ao trocar de modelo, a foto e os textos que você já inseriu continuam no lugar
 | Agrupar / Desagrupar os itens selecionados | Ctrl+G / Ctrl+Shift+G |
 | Editar um item só, dentro de um grupo | Duplo clique nele |
 | Travar / destravar (cadeado): o item não se move, não é editado nem apagado | Ctrl+Shift+L |
-| Destravar o livro inteiro (todas as páginas) | Projeto › Destravar o livro inteiro (também no painel da página e no botão direito) |
+| Travar / destravar o livro inteiro (todas as páginas) | Projeto › Travar / Destravar o livro inteiro (também no painel da página e no botão direito) |
 | Duplicar elemento | Ctrl+D |
 | Excluir elemento | Delete |
 | Mover elemento | Setas (0,5 mm) · Shift+Setas (5 mm) |
