@@ -63,7 +63,7 @@ export function toast(msg, kind = 'info', ms = 4200) {
 export function modal(title, body, actions = [], { wide = false, onClose } = {}) {
   const back = h('div', { class: 'modal-back' });
   const close = () => { back.remove(); document.removeEventListener('keydown', esc); onClose?.(); };
-  const esc = (e) => { if (e.key === 'Escape') close(); };
+  const esc = (e) => { if (e.key === 'Escape' && [...document.querySelectorAll('.modal-back')].pop() === back) close(); }; // só a janela de cima
   document.addEventListener('keydown', esc);
   const foot = h('div', { class: 'modal-foot' });
   for (const a of actions) {

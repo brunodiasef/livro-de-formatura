@@ -5,7 +5,8 @@ import { state, spreadPages, commit } from './state.js';
 import { renderPage, layoutText, photoDpi, textObstacles } from './render.js';
 import { PAGE_W, PAGE_H, SHEET_W, SHEET_H, DPI_MIN } from './constants.js';
 import { h, download, sleep } from './util.js';
-import { modal, toast } from './ui-kit.js';
+import { modal, toast, btn } from './ui-kit.js';
+import { openDuplexSimulator } from './simulacao.js';
 
 // Cada item devolvido é um lado de folha A4 do PDF: [metade esquerda, metade direita].
 // Frente e verso: depois de cortar ao meio, cada metade (A5) vira uma "folhinha" do livro
@@ -158,6 +159,11 @@ export function openExportDialog() {
     h('small', {}, 'Na impressora, ative "frente e verso" e escolha a mesma opção daqui:'),
     radio('flip', 'curta', 'Virar na borda curta (recomendado)', 'O verso é impresso como se você virasse a folha de lado, igual a um livro.'),
     radio('flip', 'longa', 'Virar na borda longa', 'Use esta se a sua impressora só tiver essa opção.'),
+    btn('Ver a simulação passo a passo (imprimir, cortar, juntar e folhear)', { icon: 'book', cls: 'sim-open', onClick: () => openDuplexSimulator(opts, () => {
+      // o que mudar na simulação já vale para a exportação
+      body.querySelectorAll('input[type=radio]').forEach((r) => { r.checked = String(opts[r.name]) === r.value; });
+      refresh();
+    }) }),
   );
   impoBox.append(
     h('h4', {}, 'Ordem das páginas nas folhas'),
